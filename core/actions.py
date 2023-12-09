@@ -1,5 +1,10 @@
 from core.global_setup import NUM_CARDS_IN_CENTER
-from communication.communication import get_from_player, send_to_player
+#  from unactual_files.communication import get_from_player, send_to_player
+def get_from_player():
+    pass
+
+def send_to_player():
+    pass
 cards_in_center = NUM_CARDS_IN_CENTER
 
 
@@ -102,7 +107,7 @@ class Actions:
 
     def find_roles(self, role):
         # return a list of players who have the given role
-        return [i for i in self.table.roles[:-3] if self.table.roles[i] == role]
+        return [i for i in self.table.roles[:-cards_in_center] if self.table.roles[i] == role]
 
     # actions of roles
     def doppelganger_action(self):
@@ -165,29 +170,28 @@ class Actions:
             # The guard can put the Guard token.py on top of any card on the table, except his own
             positions_to_act = self.get_and_validate_input(['any'])  # type = list
             self.table.guarded_card = positions_to_act[0]
-            send_to_player(self.table.performer_position, f"The Guard token has been put on the card at position {positions_to_act[0]}.")
-        else:  # if token.py is putted on his own card by the doppelganger
+            return f"The Guard token has been put on the card at position {positions_to_act[0]}."
+        else:  # if token.py is putted on guard's card by the doppelganger
             pass
 
     def alpha_action(self, from_doppelganger=False):
 
         # The alpha can look at any other player's card
         positions_to_act = self.get_and_validate_input(['player'])
-        send_to_player(self.table.performer_position, f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
+        return f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}."
         # new role to wake up on time
         self.table.roles[self.table.performer_position] = 'Вервульф'
 
     def werewolf_action(self):
         # The werewolves can look at each other
         werewolves_positions = [i for i, role in enumerate(self.table.roles[:-cards_in_center]) if role in ['Вервульф']]
-        send_to_player(self.table.performer_position, f"The werewolves are at positions {werewolves_positions}.")
+        return f"The werewolves are at positions {werewolves_positions}."
 
         # If there is only one werewolf, he can look at one card in the center
         if len(werewolves_positions) == 1:
             send_to_player(self.table.performer_position, "Which center card you want to know?")
             positions_to_act = self.get_and_validate_input(['center'])
-            send_to_player(self.table.performer_position,
-                f"The card in the center at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
+            return f"The card in the center at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}."
 
     def minion_action(self):
         # The minion can see who the werewolves are
@@ -198,18 +202,18 @@ class Actions:
     def tigar_action(self):
         # The tigars can see each other
         tigars_positions = [i for i, role in enumerate(self.table.roles[:-cards_in_center]) if role == 'Тигар']
-        send_to_player(self.table.performer_position, f"The tigars are at positions {tigars_positions}.")
+        return f"The tigars are at positions {tigars_positions}."
 
     def sheriff_action(self):
         # The sheriff can look at any other player's card
         positions_to_act = self.get_and_validate_input(['player'])
-        send_to_player(self.table.performer_position, f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
+        return f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}."
 
     def seer_action(self):
         # The seer can look at two cards in the center
         positions_to_act = self.get_and_validate_input(['center', 'center'])
-        send_to_player(self.table.performer_position,
-            f"The cards in the center at positions {positions_to_act} are {self.table.cards[positions_to_act[0]]} and {self.table.cards[positions_to_act[1]]}.")
+
+        return f"The cards in the center at positions {positions_to_act} are {self.table.cards[positions_to_act[0]]} and {self.table.cards[positions_to_act[1]]}."
 
     def inspector_action(self, from_doppelganger=False):
         if from_doppelganger:
@@ -220,10 +224,10 @@ class Actions:
         if role_positions is None:  # for the first wakeup
             # The inspector can look at any other player's card
             role_positions = self.get_and_validate_input(['player'])
-            send_to_player(self.table.performer_position, f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}.")
+            return f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}."
         else:  # for the second wakeup
             # The inspector can look at the same player's card again
-            send_to_player(self.table.performer_position, f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}.")
+            return f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}."
 
         #  store positions in the correct place
         if from_doppelganger:

@@ -1,10 +1,12 @@
 import random
 import time
 from collections import Counter
-from core.actions import Actions
-from communication.communication import send_to_player, send_all, get_from_player
+from unactual_files.communication.communication import send_to_player, send_all, get_from_player
 from core.global_setup import ROLES_INCLUSION_ORDER, NIGHT_ACTIONS_ORDER, MIN_NUM_PLAYERS, MAX_NUM_PLAYERS, \
     NUM_CARDS_IN_CENTER, MAX_NUM_ROUNDS, AWARDS
+from dataclasses import dataclass, field
+from core.actions import Actions
+from enum import Enum
 
 roles_inclusion_order = ROLES_INCLUSION_ORDER
 night_actions_order = NIGHT_ACTIONS_ORDER
@@ -12,40 +14,54 @@ num_cards_in_center = NUM_CARDS_IN_CENTER
 min_num_players = MIN_NUM_PLAYERS
 max_num_players = MAX_NUM_PLAYERS
 awards = AWARDS
+format_dict = {}
 
 
+@dataclass
 class Table:
-    def __init__(self, cards_set, roles_night_order):
-        self.testing = True
+    # general
+    game_id: str
+    admin_id: str
+    status: str
 
-        self.cards = list(cards_set)  # create a new list that is a copy of cards_set
+    # to start a game
+    cards_set: list[str]
+    roles_night_order: list[str]
+    awards: Enum  # dict with points for victory
+    players: list[str]  # list of players IDs: str
+    # players_names: list[int]  # list of players usernames
+
+    # for night actions
+    next_role: str | None = None  # "Werewolf" or "Voting"
+    performer_position: int | None = None  # to keep track of the performing player
+    guarded_card: int | None = None  # card blocked from actions index
+    doppelganger_role: int | None = None
+    doppelganger_wakeup_count: int = 0
+    doppelganger_positions: int | None = None  # in case he is inspector or intriguer
+    inspector_positions: int | None = None
+    intriguer_positions: int | None = None
+
+    # for determining winners
+    teams: list[str] = field(default_factory=list)
+    executed: int | None = None
+    winner_team: str = 'error_no_winners'
+    scores: list[int] = field(default_factory=list)  # Correct: each instance will get a new list
+
+    def __post_init__(self):
+        self.testing: bool = True
+        self.cards = list(self.cards_set)
         self.num_players = len(self.cards) - NUM_CARDS_IN_CENTER
-        random.shuffle(self.cards)  # original list is not shuffled
-
-        # debugging
-        self.cards = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
-
-        self.roles = list(self.cards)  # create another new list that is a copy of cards_set
-
+        self.num_center = NUM_CARDS_IN_CENTER
+        random.shuffle(self.cards)
+        self.roles = list(self.cards)
         self.actions = Actions(self)
 
-        self.guarded_card = None  # card blocked from actions index
-        self.inspector_positions = None
-        self.intriguer_positions = None
-        self.doppelganger_role = None
-        self.doppelganger_wakeup_count = 0
-        self.doppelganger_positions = None  # for the cases he become an inspector or an intriguer
+        # Uncomment for debugging
+        # self.cards = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
 
-        self.teams = []  # to get teams for purposes of voting
-        self.performer_position = None  # to keep track of the performing player
-        self.executed = None  # who is selected upon voting
-        self.winner_team = 'error_no_winners'  # default to catch mistakes
-        self.awards = awards  # points for winners
-        self.scores = []  # to put scores into
-        self.roles_night_order = roles_night_order
+
 
     # stages:
-
     def night_actions(self):
         for role in self.roles_night_order:
             send_all(self.num_players, f"Turn of {role}")
@@ -179,15 +195,14 @@ def complete_cards_set(given_cards_set, num_players):
 
 def get_night_order(cards_set):
     roles_night_order = []
-    # Create a map of class names to class objects
-    # class_map = {name: cls for name, cls in inspect.getmembers(sys.modules[__name__], inspect.isclass)}
-    # print(f"class_map: {class_map}")  # Print the class_map to debug
+
     for action in night_actions_order:
         if action in cards_set:
             roles_night_order.append(action)  # if double action, should be parsed while doing so
             if action == 'Вожак' and 'Вервульф' not in cards_set:
                 roles_night_order.append('Вервульф')  # if only Вожак we should have werewolf stage anyway
     return roles_night_order
+
 
 # communication functions
 

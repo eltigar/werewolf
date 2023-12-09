@@ -2,19 +2,17 @@ from aiogram import Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from lexicon.lexicon import LEXICON_RU as LEXICON
-from data_storage.data import add_user, get_user, update_name
+
+from data import game_service
 
 # Инициализируем роутер уровня модуля
 router = Router()
 
 
-# Этот хэндлер срабатывает на команду /start
 @router.message(CommandStart())
 async def process_start_command(message: Message):
     await message.answer(text=LEXICON['/start'])
-    # Если пользователь только запустил бота и его нет в словаре - добавляем его в словарь
-    # функция внутри проверит, что его еще нет
-    add_user(message.from_user.id, message.from_user.first_name)
+    game_service.user_repo.add_user(str(message.from_user.id), message.from_user.first_name)
 
 
 @router.message(Command(commands='help'))
@@ -22,25 +20,43 @@ async def process_help_command(message: Message):
     await message.answer(text=LEXICON['/help'])
 
 
-# Change name handler as you specified
 @router.message(Command(commands='change_name'))
 async def change_name_command(message: Message):
-    # change name logic here
-    new_name = message.text[13:]
+    user_id = str(message.from_user.id)
+    user = game_service.user_repo.get_user(user_id)
+    new_name = message.text[13:].strip()
     if len(new_name) == 0:
-        await message.answer(text=LEXICON['/change_name_request'])
+        answer = LEXICON['/change_name_request']
+        await message.answer(answer, parse_mode='Markdown')
+        await message.answer(text=f"Ваше текущее имя: {user.username}")
     elif len(new_name) < 3:
-        await message.answer(text=LEXICON['/change_name_error'])
+        answer = LEXICON['/change_name_error']
+        await message.answer(answer, parse_mode='Markdown')
+        await message.answer(text=f"Ваше текущее имя: {user.username}")
     else:
-        update_name(message.from_user.id, new_name)
-        await message.answer(text=LEXICON['/change_name_success'] + new_name)
+        game_service.user_repo.update_name(str(message.from_user.id), new_name)
+        answer = LEXICON['/change_name_success'] + new_name
+        await message.answer(answer, parse_mode='Markdown')
 
 
+@router.message(Command(commands='new'))
+async def new_game(message: Message):
+    answer = game_service.create_game(str(message.from_user.id))
+    await message.answer(answer, parse_mode='Markdown')
+
+@router.message(Command(commands='join'))
+async def join_game_command(message: Message):
+    game_id = message.text[len('/join '):]  # The format is /join <game_id>
+    if not game_id:
+        answer = 'Error: you have not entered game ID'
+    else:
+        answer = game_service.join_game(str(message.from_user.id), game_id)
+
+    await message.answer(answer)
+    if answer == "success":
+        pass  # to inform admin that user joined? maybe do it when game state is updated?
 
 
-# Handle all unspecified commands
 @router.message(lambda message: True)
 async def unknown_command(message: Message):
     await message.answer('Unexpected message, I do nothing.\nPress /help to see available commands')
-
-# ... Add other default handlers here

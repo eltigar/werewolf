@@ -1,15 +1,15 @@
 # bot.py
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, Router
+from aiogram.filters import BaseFilter
+from aiogram.types import Message
 from environs import Env
-#  from config_data.config import Config, load_config
-from handlers import in_game_handlers, game_setup_handlers, default_handlers
+from config import path_to_env
+from handlers import started_game_handlers, created_game_handlers, default_handlers
+from data import game_service
 
-# Load configuration data
-#  config: Config = load_config()
 # Setup environment configurations
 env = Env()  # Создаем экземпляр класса Env
-env.read_env(
-    "C:/Users/ibrau/Documents/Environmental_variables/werewolf.env")  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
+env.read_env(path_to_env)  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
 
 BOT_TOKEN = env('BOT_TOKEN')
 ADMIN_ID = env.int('ADMIN_ID')
@@ -18,8 +18,10 @@ ADMIN_ID = env.int('ADMIN_ID')
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
+
 # Register routers (handlers) with the dispatcher
-# dp.include_router(in_game_handlers.router)
-dp.include_router(game_setup_handlers.router)
+dp.include_router(started_game_handlers.router)
+dp.include_router(created_game_handlers.router)
 dp.include_router(default_handlers.router)
+
 
