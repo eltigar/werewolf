@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 from data.game_repository import GameRepository
@@ -14,6 +15,7 @@ from core.global_setup import NIGHT_ACTIONS_ORDER, AWARDS
 class GameService:
 
     def __init__(self, user_repo: UserRepository, game_repo: GameRepository):
+        self.awaiting_input: dict = {}  # all players awaiting for input
         self.user_repo = user_repo
         self.game_repo = game_repo
 
@@ -170,7 +172,7 @@ class GameService:
 
     def make_night_action(self, action_args: list[int] | None, current_table: Table) -> None:
         # do the action
-        "perform_action(action_args)"
+        "perform_action(*action_args)"
         "send info"
         # if not the last turn
         if "after_next_role" != "last for a game":
@@ -202,3 +204,18 @@ class GameService:
 
     def accept_vote(self, game_id: str, user_id: str, vote: str):
         pass
+
+    async def wait_for_player_input(self, user_id):
+        future = asyncio.Future()
+        self.awaiting_input[user_id] = future
+        try:
+            await future
+            return future.result()
+        finally:
+            del self.awaiting_input[user_id]
+
+    def set_player_input(self, user_id, input_data):
+        if user_id in self.awaiting_input:
+            self.awaiting_input[user_id].set_result(input_data)
+
+

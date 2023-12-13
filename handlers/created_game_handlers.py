@@ -2,6 +2,8 @@
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
+
+from core.gameplay import Table
 from lexicon.lexicon import LEXICON_RU as LEXICON
 from data import game_service
 from aiogram.filters import BaseFilter
@@ -61,3 +63,7 @@ async def show_joined_command(message: Message):
     game_id = game_service.user_repo.get_game_id_for_user(user_id, 'created')
     answer = game_service.get_participants(game_id)
     await message.answer(answer)
+
+@router.message(Command(commands='play'))
+async def play_game(message: Message, user_id: str, current_table: Table):
+    pass

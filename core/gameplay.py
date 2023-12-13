@@ -59,7 +59,8 @@ class Table:
         # Uncomment for debugging
         # self.cards = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
 
-
+    def id_from_position(self, player_position: int) -> str:
+        return self.players[player_position]
 
     # stages:
     def night_actions(self):

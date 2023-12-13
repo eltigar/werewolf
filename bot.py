@@ -1,11 +1,9 @@
 # bot.py
 from aiogram import Bot, Dispatcher, Router
-from aiogram.filters import BaseFilter
-from aiogram.types import Message
+
 from environs import Env
 from config import path_to_env
 from handlers import started_game_handlers, created_game_handlers, default_handlers
-from data import game_service
 
 # Setup environment configurations
 env = Env()  # Создаем экземпляр класса Env
@@ -23,5 +21,7 @@ dp = Dispatcher()
 dp.include_router(started_game_handlers.router)
 dp.include_router(created_game_handlers.router)
 dp.include_router(default_handlers.router)
+
+
 
 

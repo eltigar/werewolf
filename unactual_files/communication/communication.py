@@ -47,10 +47,10 @@ async def async_print(message):
 
 def send_to_player(player, message, output_func=print):
     if player != "All":
-        user_id = get_user_id(player)  # Replace this with your actual function to get user_id
+        user_id = get_user_id(player)
         output_func(f"{user_id}: {message}")
     else:
-        send_all(message)
+        send_all(num_players, message)
 
 
 def send_all(num_players, message):
@@ -61,7 +61,6 @@ def send_all(num_players, message):
 def get_from_player(player, prompt, input_func=input):
     send_to_player(player, prompt)
     # started_games.data
-    get_from_telegram()
     return input_func()  # Replace this with Telegram API call to get a message if needed
 
 

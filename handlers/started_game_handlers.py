@@ -48,13 +48,6 @@ class PromptFormat(Enum):
     suicidal = None
 
 
-@router.message(Command('abort'))
-async def play_game(message: Message, user_id: str, current_table: Table):
-    if user_id == current_table.admin_id:
-        game_service.game_repo.abort_game(current_table.game_id)
-        await message.answer("Game successfully aborted")
-    else:
-        await message.answer("Not admin of the game")
 
 
 def validate_input(role: str, action_args: list[int], performer_position: int, guarded_card: int,
@@ -87,6 +80,15 @@ def validate_input(role: str, action_args: list[int], performer_position: int, g
     return answer
 
 
+@router.message(Command('abort'))
+async def abort_game(message: Message, user_id: str, current_table: Table):
+    if user_id == current_table.admin_id:
+        game_service.game_repo.abort_game(current_table.game_id)
+        await message.answer("Game successfully aborted")
+    else:
+        await message.answer("Not admin of the game")
+
+
 @router.message()
 async def process_in_game_command(message: Message, user_id: str, current_table: Table) -> str or None:
     if current_table.next_role is None:
@@ -103,7 +105,7 @@ async def process_in_game_command(message: Message, user_id: str, current_table:
         if answer != 'Input seems valid':
             await message.answer("Incorrect format of data. Should be {pformat.next_role}.")
         else:
-            await message.answer(game_service.make_night_action(action_args, current_table))
+            await message.answer(game_service.set_player_input(user_id, action_args))
 
 
 '''
