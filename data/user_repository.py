@@ -64,7 +64,8 @@ class UserRepository:
             raise ValueError("Invalid status value")
         else:
             user = load_user_data(user_id)
-            user.current_game_id = game_id
+            if game_id != 'same':
+                user.current_game_id = game_id
             user.current_game_status = status
             save_user_data(user_id, user)
 

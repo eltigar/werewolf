@@ -13,7 +13,7 @@ router = Router()
 
 class StartedFilter(BaseFilter):
     async def __call__(self, message: Message) -> bool | dict:
-        user_id = message.from_user.id
+        user_id = str(message.from_user.id)
         user = game_service.user_repo.get_user(user_id)
         if user is None or user.current_game_id is None or user.current_game_status != 'started':
             return False
@@ -83,8 +83,8 @@ def validate_input(role: str, action_args: list[int], performer_position: int, g
 @router.message(Command('abort'))
 async def abort_game(message: Message, user_id: str, current_table: Table):
     if user_id == current_table.admin_id:
-        game_service.game_repo.abort_game(current_table.game_id)
-        await message.answer("Game successfully aborted")
+        answer = game_service.abort_game(current_table.game_id)
+        await message.answer(answer)  # должно отправляться всем
     else:
         await message.answer("Not admin of the game")
 
@@ -94,7 +94,7 @@ async def process_in_game_command(message: Message, user_id: str, current_table:
     if current_table.next_role is None:
         await message.answer("It's nobody's turn now")
     elif current_table.next_role == 'Voting':
-        await message.answer(game_service.accept_vote(...))
+        await message.answer(game_service.accept_vote(current_table.game_id, user_id, message.text))
     elif current_table.performer_position != current_table.players.index(user_id):  # whether this is a turn of a player
         await message.answer("It's not your turn now")
     else:

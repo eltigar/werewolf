@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from data.game_repository import GameRepository
 from data.user_repository import UserRepository
-from core.gameplay import Table
+from core.gameplay import play, Table
 from core.global_setup import NIGHT_ACTIONS_ORDER, AWARDS
 
 
@@ -60,7 +60,7 @@ class GameService:
             return "User cannot leave on this stage"
         current_table = self.game_repo.load_table(game_id, 'created')
         if not current_table:
-            return "User not part of any game."
+            return "Table object for user not found"
         if current_table.admin_id == user_id:
             return "Admin cannot leave the game."
         current_table.players.remove(user_id)
@@ -104,7 +104,6 @@ class GameService:
         current_table.admin_id = None
         for player_id in current_table.players:
             self.user_repo.update_game_id_and_status(player_id, None, None)  # update users db
-            current_table.players.remove(player_id)
         self.game_repo.move_table(game_id, 'created', 'cancelled')
         return f"Game {game_id} was cancelled by admin {admin_id}."
 
@@ -146,7 +145,7 @@ class GameService:
         self.game_repo.save_game_state(game_id, current_table)
         return f"{new_admin_id} is new Admin of the game {game_id}."
 
-    def start_game(self, admin_id, game_id):
+    def check_if_game_can_start(self, admin_id, game_id):
         current_table = self.game_repo.load_table(game_id, 'created')
         # Check if the game exists and the user trying to start it is the admin.
         if current_table is None:
@@ -159,16 +158,20 @@ class GameService:
             return "Game cannot be started in its current state."
 
         # Check if there are enough participants to start the game.
-        if len(current_table.players) < 3:  # Assuming at least 2 participants are required to start the game.
+        if len(current_table.players) < 2:  # Assuming at least 2 participants are required to start the game.
             return "Not enough participants to start the game."
 
-        # also usernames should be added here
+        return f"Game {game_id} is starting!"
+
+    async def start_game(self, current_table: Table):
+
+        # usernames should be added here and other final preparation
         # for player_id in .players: .usernames.append(get_username(player_id))
 
-        self.game_repo.move_table(game_id, 'created', 'started')
-        # Move the game from 'created' to 'started' database
-
-        return f"Game {game_id} is starting."
+        for player_id in current_table.players:
+            self.user_repo.update_game_id_and_status(player_id, 'same', 'started')  # update users db
+        self.game_repo.move_table(current_table.game_id, 'created', 'started')
+        await play(current_table)
 
     def make_night_action(self, action_args: list[int] | None, current_table: Table) -> None:
         # do the action
@@ -189,9 +192,6 @@ class GameService:
             "send each player notification"
             "get ready to receive votes"
 
-
-
-
         # perform, changing table if needed
 
         # send confirmation or info to user
@@ -203,19 +203,15 @@ class GameService:
         pass
 
     def accept_vote(self, game_id: str, user_id: str, vote: str):
+        # placeholder
+        return f"Vote by {user_id} equals {vote} has got to the function in game service"
         pass
 
-    async def wait_for_player_input(self, user_id):
-        future = asyncio.Future()
-        self.awaiting_input[user_id] = future
-        try:
-            await future
-            return future.result()
-        finally:
-            del self.awaiting_input[user_id]
-
-    def set_player_input(self, user_id, input_data):
-        if user_id in self.awaiting_input:
-            self.awaiting_input[user_id].set_result(input_data)
-
+    def abort_game(self, game_id) -> str:
+        current_table = self.game_repo.load_table(game_id, 'started')
+        current_table.admin_id = None
+        for player_id in current_table.players:
+            self.user_repo.update_game_id_and_status(player_id, None, None)  # update users db
+        self.game_repo.move_table(game_id, 'started', 'cancelled')
+        return f"Game {game_id} was aborted by admin."
 

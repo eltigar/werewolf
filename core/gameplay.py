@@ -1,12 +1,13 @@
 import random
 import time
 from collections import Counter
-from unactual_files.communication.communication import send_to_player, send_all, get_from_player
+from dataclasses import dataclass, field
+# from enum import Enum
+
+# from core.actions import Actions
+from data.communication import send_to_player, send_multiple, get_from_player
 from core.global_setup import ROLES_INCLUSION_ORDER, NIGHT_ACTIONS_ORDER, MIN_NUM_PLAYERS, MAX_NUM_PLAYERS, \
     NUM_CARDS_IN_CENTER, MAX_NUM_ROUNDS, AWARDS
-from dataclasses import dataclass, field
-from core.actions import Actions
-from enum import Enum
 
 roles_inclusion_order = ROLES_INCLUSION_ORDER
 night_actions_order = NIGHT_ACTIONS_ORDER
@@ -15,6 +16,168 @@ min_num_players = MIN_NUM_PLAYERS
 max_num_players = MAX_NUM_PLAYERS
 awards = AWARDS
 format_dict = {}
+
+
+async def get_game_setup(admin=None, players_joined=None):
+    if players_joined is not None and MIN_NUM_PLAYERS <= players_joined <= MAX_NUM_PLAYERS:
+        num_players = players_joined
+    else:
+        while True:
+            try:
+                num_players = int(await get_from_player(admin, "Enter the number of players: "))
+                if num_players < MIN_NUM_PLAYERS or num_players > MAX_NUM_PLAYERS:
+                    await send_to_player(admin,
+                                         f"Invalid number of players. Please enter a number between {MIN_NUM_PLAYERS} and {MAX_NUM_PLAYERS}.")
+                    continue
+                break
+            except ValueError:
+                await send_to_player(admin, "Invalid input. Please enter integers only.")
+
+    while True:
+        try:
+            num_rounds = int(await get_from_player(admin, "Enter the number of rounds: "))
+            if num_rounds < 1 or num_rounds > MAX_NUM_ROUNDS:
+                await send_to_player(admin,
+                                     f"Invalid number of rounds. Please enter a number between 1 and {MAX_NUM_ROUNDS}.")
+                continue
+            break
+        except ValueError:
+            await send_to_player(admin, "Invalid input. Please enter integers only.")
+
+    return num_players, num_rounds
+
+
+def complete_cards_set(given_cards_set, num_players):
+    cards_set = given_cards_set.copy()
+
+    for role in roles_inclusion_order:
+        if role in given_cards_set:
+            given_cards_set.remove(role)  # removing from the original list to exclude double-counting
+        else:
+            cards_set.append(role)
+        if len(cards_set) == num_players + num_cards_in_center:
+            if cards_set.count('Тигар') != 1:  # Should be none or at least 2 of them
+                break
+            else:
+                cards_set.remove('Тигар')
+    return cards_set
+
+
+def get_night_order(cards_set):
+    roles_night_order = []
+
+    for action in night_actions_order:
+        if action in cards_set:
+            roles_night_order.append(action)  # if double action, should be parsed while doing so
+            if action == 'Вожак' and 'Вервульф' not in cards_set:
+                roles_night_order.append('Вервульф')  # if only Вожак we should have werewolf stage anyway
+    return roles_night_order
+
+
+# communication functions
+
+
+async def get_given_cards_set(admin=None):
+    while True:
+        setup_choice = await get_from_player(admin,
+                                             "Do you want to set up cards set manually? (yes/no): ")
+        if setup_choice.strip().lower() not in ['yes', 'no']:
+            await send_to_player(admin, "Invalid choice. Please enter 'yes' or 'no'.")
+            continue
+        if setup_choice == 'no':
+            return []
+
+        card_names_str = await get_from_player(admin, "Enter the card names separated by spaces: ")
+        card_names_str.strip()
+        given_cards_set = [card.capitalize() for card in card_names_str.split()]
+
+        # Validate card names
+        is_valid_set = True  # Set the flag to False
+        cards_available = ROLES_INCLUSION_ORDER.copy()
+        for card in given_cards_set:
+            if card in cards_available:
+                cards_available.remove(card)
+            else:
+                if card in ROLES_INCLUSION_ORDER:
+                    await send_to_player(admin,
+                                         f"Exceeded the allowed number of {card} cards. Please enter a valid set of cards.")
+
+                else:
+                    await send_to_player(admin, f"{card} is an invalid card name. Please enter only valid card names.")
+                is_valid_set = False  # Set the flag to False
+
+        if not is_valid_set:
+            continue  # Continue the while loop if the set is not valid
+
+        # Validate total number of cards (currently never used)
+        total_cards = len(given_cards_set)
+        if total_cards > MAX_NUM_PLAYERS + NUM_CARDS_IN_CENTER:
+            await send_to_player(admin,
+                                 f"Too many cards. The total number of cards should not exceed {MAX_NUM_PLAYERS + NUM_CARDS_IN_CENTER}.")
+            continue
+
+        return given_cards_set
+
+
+async def get_vote(player, num_players):
+    max_attempts = 3
+    attempts = 0  # Counter for the number of attempts
+    while True:
+        if attempts >= max_attempts:
+            await send_to_player(player, "Too many invalid attempts. Your vote will be considered as peaceful day.")
+            return -1  # Or handle this case as you see fit
+
+        try:
+            vote_str = await get_from_player(player, "Enter your vote: ")  # Remove leading and trailing spaces
+            vote = int(vote_str.strip())
+
+            if -1 <= vote <= num_players:
+                return vote  # Exit the loop and return the vote
+            else:
+                await send_to_player(player, f"Invalid vote. Please enter a number between -1 and {num_players}.")
+                attempts += 1  # Increment the attempts counter
+
+        except ValueError:
+            await send_to_player(player, "Invalid input. Please enter integers only.")
+            attempts += 1  # Increment the attempts counter
+
+
+async def prepare_to_play(admin, players_joined):
+    # game setup
+    # can set admin and players_joined here
+    num_players, num_rounds = await get_game_setup(admin, players_joined)
+    given_cards_set = await get_given_cards_set(admin)
+    cards_set = complete_cards_set(given_cards_set[:num_players + num_cards_in_center], num_players)
+    return num_players, num_rounds, cards_set
+
+
+async def play_round(table):
+    cards_set, roles_night_order = table.cards_set, table.roles_night_order
+    table.cards = table.cards_set
+    # shuffle the cards HERE
+
+    table.roles = table.cards
+
+
+    await send_multiple(table.players, f"The set of cards for this round is: {cards_set}")
+    # for debugging
+    for player_id, card in zip(table.players, table.cards[:table.num_players]):
+        await send_to_player(player_id, f"Your ID is {player_id}, your card is {card}")  # players know their cards
+    await table.night_actions()
+    await table.discussion()
+    table.get_teams()
+    votes = []
+    table.next_role = 'Voting'
+    for player in range(table.num_players):
+        votes.append(await get_vote(player, table.num_players))
+    # votes_string = await get_from_player  ("All", "Enter votes separated with spaces: ")
+    # votes = [int(vote) for vote in votes_string.split(" ")]
+    table.voting(votes)
+    table.get_scores_list()
+    await send_multiple(table.players, f"The final position is {table.cards}, the executed player is {table.executed}")
+    await send_multiple(table.players,
+                        f"The winning team is {table.winner_team}. The scores of this round are {table.scores}")
+    return table.scores
 
 
 @dataclass
@@ -27,7 +190,7 @@ class Table:
     # to start a game
     cards_set: list[str]
     roles_night_order: list[str]
-    awards: Enum  # dict with points for victory
+    awards: dict  # dict with points for victory
     players: list[str]  # list of players IDs: str
     # players_names: list[int]  # list of players usernames
 
@@ -50,11 +213,11 @@ class Table:
     def __post_init__(self):
         self.testing: bool = True
         self.cards = list(self.cards_set)
-        self.num_players = len(self.cards) - NUM_CARDS_IN_CENTER
+        self.num_players = len(self.players) - NUM_CARDS_IN_CENTER
         self.num_center = NUM_CARDS_IN_CENTER
         random.shuffle(self.cards)
         self.roles = list(self.cards)
-        self.actions = Actions(self)
+        self.actions = None  # import will be done in night actions module
 
         # Uncomment for debugging
         # self.cards = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
@@ -63,32 +226,35 @@ class Table:
         return self.players[player_position]
 
     # stages:
-    def night_actions(self):
+    async def night_actions(self):
+        from core.actions import Actions
+        self.actions = Actions(self)
         for role in self.roles_night_order:
-            send_all(self.num_players, f"Turn of {role}")
+            await send_multiple(self.players, f"Turn of {role}")
             for i, player in enumerate(self.roles[:-NUM_CARDS_IN_CENTER]):
                 if player == role:
                     # Set the current player's position
                     self.performer_position = i
+                    self.next_role = role
                     # Perform the action
                     self.actions.perform_action(role)
             if self.testing:
                 print(self.cards)
 
-    def discussion(self):
+    async def discussion(self):
         t = len(self.cards[:-NUM_CARDS_IN_CENTER])
 
-        send_all(self.num_players, f"It is time for discussion, you have {t + 2} minutes")
+        await send_multiple(self.players, f"It is time for discussion, you have {t + 2} minutes")
         if self.testing:
             time.sleep(3)  # lower time for testing
         else:
             time.sleep(t * 60)  # wait n+2 minutes
-        send_all(self.num_players, f"You have 2 minutes left. After time is over you must stop talking.")
+        await send_multiple(self.players, f"You have 2 minutes left. After time is over you must stop talking.")
         if self.testing:
             time.sleep(2)  # lower time for testing
         else:
             time.sleep(2 * 60)  # wait 2 minutes
-        send_all(self.num_players, f"Time is up, now close your eyes and vote")
+        await send_multiple(self.players, f"Time is up, now close your eyes and vote")
         if self.testing:
             time.sleep(1)  # lower time for testing
         else:
@@ -149,186 +315,40 @@ class Table:
                 self.scores.append(0)
 
 
-def get_game_setup(admin=None, players_joined=None):
-    if players_joined is not None and MIN_NUM_PLAYERS <= players_joined <= MAX_NUM_PLAYERS:
-        num_players = players_joined
-    else:
-        while True:
-            try:
-                num_players = int(get_from_player(admin, "Enter the number of players: "))
-                if num_players < MIN_NUM_PLAYERS or num_players > MAX_NUM_PLAYERS:
-                    send_to_player(admin,
-                                   f"Invalid number of players. Please enter a number between {MIN_NUM_PLAYERS} and {MAX_NUM_PLAYERS}.")
-                    continue
-                break
-            except ValueError:
-                send_to_player(admin, "Invalid input. Please enter integers only.")
-
-    while True:
-        try:
-            num_rounds = int(get_from_player(admin, "Enter the number of rounds: "))
-            if num_rounds < 1 or num_rounds > MAX_NUM_ROUNDS:
-                send_to_player(admin,
-                               f"Invalid number of rounds. Please enter a number between 1 and {MAX_NUM_ROUNDS}.")
-                continue
-            break
-        except ValueError:
-            send_to_player(admin, "Invalid input. Please enter integers only.")
-
-    return num_players, num_rounds
-
-
-def complete_cards_set(given_cards_set, num_players):
-    cards_set = given_cards_set.copy()
-
-    for role in roles_inclusion_order:
-        if role in given_cards_set:
-            given_cards_set.remove(role)  # removing from the original list to exclude double-counting
-        else:
-            cards_set.append(role)
-        if len(cards_set) == num_players + num_cards_in_center:
-            if cards_set.count('Тигар') != 1:  # Should be none or at least 2 of them
-                break
-            else:
-                cards_set.remove('Тигар')
-    return cards_set
-
-
-def get_night_order(cards_set):
-    roles_night_order = []
-
-    for action in night_actions_order:
-        if action in cards_set:
-            roles_night_order.append(action)  # if double action, should be parsed while doing so
-            if action == 'Вожак' and 'Вервульф' not in cards_set:
-                roles_night_order.append('Вервульф')  # if only Вожак we should have werewolf stage anyway
-    return roles_night_order
-
-
-# communication functions
-
-
-def get_given_cards_set(admin=None):
-    while True:
-        setup_choice = get_from_player(admin, "Do you want to set up cards set manually? (yes/no): ").strip().lower()
-        if setup_choice not in ['yes', 'no']:
-            send_to_player(admin, "Invalid choice. Please enter 'yes' or 'no'.")
-            continue
-        if setup_choice == 'no':
-            return []
-
-        card_names_str = get_from_player(admin, "Enter the card names separated by spaces: ").strip()
-        given_cards_set = [card.capitalize() for card in card_names_str.split(" ")]
-
-        # Validate card names
-        is_valid_set = True  # Set the flag to False
-        cards_available = ROLES_INCLUSION_ORDER.copy()
-        for card in given_cards_set:
-            if card in cards_available:
-                cards_available.remove(card)
-            else:
-                if card in ROLES_INCLUSION_ORDER:
-                    send_to_player(admin,
-                                   f"Exceeded the allowed number of {card} cards. Please enter a valid set of cards.")
-
-                else:
-                    send_to_player(admin, f"{card} is an invalid card name. Please enter only valid card names.")
-                is_valid_set = False  # Set the flag to False
-
-        if not is_valid_set:
-            continue  # Continue the while loop if the set is not valid
-
-        # Validate total number of cards (currently never used)
-        total_cards = len(given_cards_set)
-        if total_cards > MAX_NUM_PLAYERS + NUM_CARDS_IN_CENTER:
-            send_to_player(admin,
-                           f"Too many cards. The total number of cards should not exceed {MAX_NUM_PLAYERS + NUM_CARDS_IN_CENTER}.")
-            continue
-
-        return given_cards_set
-
-
-def get_vote(player, num_players):
-    max_attempts = 3
-    attempts = 0  # Counter for the number of attempts
-    while True:
-        if attempts >= max_attempts:
-            send_to_player(player, "Too many invalid attempts. Your vote will be considered as peaceful day.")
-            return -1  # Or handle this case as you see fit
-
-        try:
-            vote_str = get_from_player(player, "Enter your vote: ").strip()  # Remove leading and trailing spaces
-            vote = int(vote_str)
-
-            if -1 <= vote <= num_players:
-                return vote  # Exit the loop and return the vote
-            else:
-                send_to_player(player, f"Invalid vote. Please enter a number between -1 and {num_players}.")
-                attempts += 1  # Increment the attempts counter
-
-        except ValueError:
-            send_to_player(player, "Invalid input. Please enter integers only.")
-            attempts += 1  # Increment the attempts counter
-
-
-def prepare_to_play(admin, players_joined):
-    # game setup
-    # can set admin and players_joined here
-    num_players, num_rounds = get_game_setup(admin, players_joined)
-    given_cards_set = get_given_cards_set(admin)
-    cards_set = complete_cards_set(given_cards_set[:num_players + num_cards_in_center], num_players)
-    return num_players, num_rounds, cards_set
-
-
-def round(cards_set, roles_night_order):
-    table = Table(cards_set, roles_night_order)  # shuffling and dealing cards
-    send_all(table.num_players, f"The set of cards for this round is: {cards_set}")
-    # for debugging
-    for player, card in enumerate(table.cards[:table.num_players]):
-        send_to_player(player, f"Your position is {player}, your card is {card}")  # players know their cards
-    table.night_actions()
-    table.discussion()
-    table.get_teams()
-    votes = []
-    for player in range(table.num_players):
-        votes.append(get_vote(player, table.num_players))
-    # votes_string = get_from_player("All", "Enter votes separated with spaces: ")
-    # votes = [int(vote) for vote in votes_string.split(" ")]
-    table.voting(votes)
-    table.get_scores_list()
-    send_all(table.num_players, f"The final position is {table.cards}, the executed player is {table.executed}")
-    send_all(table.num_players,
-             f"The winning team is {table.winner_team}. The scores of this round are {table.scores}")
-    return table.scores
-
-
-def play():
+async def play(current_table: Table):
     #  preparation
-    admin = None
-    players_joined = None
-    num_players, num_rounds, cards_set = prepare_to_play(admin, players_joined)
+
+    # num_players, num_rounds, cards_set = prepare_to_play(admin, players_joined)
     # cards_set = ['Баламут', 'Жаворонок', 'Камикадзе', 'Тигар', 'Ревизор', 'Шериф', 'Пьяница', 'Шаман', 'Интриган',
     #              'Стражник', 'Тигар', 'Вервульф', 'Вожак', 'Вервульф', 'Провидец', 'Приспешник', 'Воришка',
     #              'Двойник', 'Вервульф', 'Тигар']
     # cards_set = ['Двойник', 'Жаворонок', 'Тигар', 'Вервульф', 'Приспешник', 'Камикадзе', 'Тигар', 'Тигар']
 
-    # еще для тестов можно не перемешивать карты в Table
-    cards_set = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
+    # ДЛЯ ТЕСТОВ можно не перемешивать карты в Table
+    current_table.cards_set = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец']  # , 'Вервульф', 'Вервульф', 'Шериф']
+    current_table.num_players = len(current_table.players)
+    num_rounds = 1
 
-    roles_night_order = get_night_order(cards_set)
-    scores = [0] * num_players
-    send_all(num_players, f"We are starting a game with {num_players} players and will play {num_rounds} round(-s).")
-    # for player in range(num_players): send_to_player(player, f"Your position is: {player}. The deck: {cards_set}")
+    current_table.roles_night_order = get_night_order(current_table.cards_set)
+    scores = [0] * current_table.num_players
+    await send_multiple(current_table.players,
+                        f"We are starting a game with {current_table.num_players} players and will play {num_rounds} round(-s).")
+    # for player in range(num_players): await send_to_player(player, f"Your position is: {player}. The deck: {cards_set}")
     # cycle for rounds
     for round_id in range(num_rounds):
-        round_scores = round(cards_set, roles_night_order)  # running a single round
-        # send_to_player('All', f"The scores of round {round_id} are {round_scores}.")
-        for player in range(num_players):
+        current_table.status = 'started'
+        # table = Table(game_id, admin_id, status, cards_set, roles_night_order, AWARDS, players)
+
+        # make async?
+        round_scores = await play_round(current_table)  # running a single play_round
+
+        # await send_to_player('All', f"The scores of play_round {round_id} are {round_scores}.")
+        for player in range(current_table.num_players):
             scores[player] += round_scores[player]
-    for player in range(num_players):
+    for player in range(current_table.num_players):
         if scores[player] != 0:
-            send_to_player(player, f"You got {scores[player]} point(-s) for victory")
+            await send_to_player(current_table.players[player], f"You got {scores[player]} point(-s) for victory")
         else:
-            send_to_player(player, f"You lose in this round and receive no points")
-    send_all(num_players, f"The final scores are: {scores}")
-    send_all(num_players, f"The winner got {max(scores)} points")
+            await send_to_player(current_table.players[player], f"You lose in this round and receive no points")
+    await send_multiple(current_table.players, f"The final scores are: {scores}")
+    await send_multiple(current_table.players, f"The winner got {max(scores)} points")

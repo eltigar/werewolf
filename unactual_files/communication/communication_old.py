@@ -31,7 +31,7 @@ for saved_game in started_games:
     games_statuses[saved_game.game_id].votes = saved_game.votes
 
 
-def start_game(game: Game):
+def check_if_game_can_start(game: Game):
     game_id = game.game_id
     num_players = len(game.participants)
     game_state = GameState(game_id, num_players)

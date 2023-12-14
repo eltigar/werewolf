@@ -66,4 +66,7 @@ async def show_joined_command(message: Message):
 
 @router.message(Command(commands='play'))
 async def play_game(message: Message, user_id: str, current_table: Table):
-    pass
+    answer = game_service.check_if_game_can_start(user_id, current_table.game_id)
+    await message.answer(answer)
+    if answer == f"Game {current_table.game_id} is starting!":
+        await game_service.start_game(current_table)
