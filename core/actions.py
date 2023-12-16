@@ -30,12 +30,12 @@ class Actions:
         }
 
     # the main function running any action
-    def perform_action(self, role, *args, **kwargs):
+    async def perform_action(self, role, *args, **kwargs):
         # Get the action function from the action map
         action_func = self.action_map.get(role)
         if action_func is not None:
             # Call the action function with any additional arguments
-            action_func(*args, **kwargs)
+            await action_func(*args, **kwargs)
         else:
             pass
             # raise exception
@@ -44,11 +44,11 @@ class Actions:
     async def get_action_args(self):
         # Get the input from the user
         inputted_args = await get_from_player(self.table.id_from_position(self.table.performer_position),
-                                        "Enter the action arguments separated by ' ': ")
+                                        "It's your turn\nEnter the action arguments separated by spaces: ")
 
         # Convert the input to a list of integers
-        action_args = list(map(int, inputted_args.split()))
-        return action_args
+        # action_args = list(map(int, inputted_args))  # it is already formatted
+        return inputted_args
 
     async def get_and_validate_input(self, input_format):
         while True:
@@ -133,7 +133,7 @@ class Actions:
             # in case Alpha Вожак
             if self.table.doppelganger_role == 'Вожак':
                 # for 'Интриган', 'Ревизор' it should be modified functiond
-                self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
+                await self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
 
 
             # in case he joins a team
@@ -149,7 +149,7 @@ class Actions:
             elif self.table.doppelganger_role in ['Ревизор', 'Интриган']:
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
                                "Act first action immediately, second on a special slot")
-                self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
+                await self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
 
             # in case he must perform later
             elif self.table.doppelganger_role in ['Жаворонок', 'Пьяница']:
@@ -161,20 +161,20 @@ class Actions:
             else:
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
                                "Act immediately according to your new role")
-                self.perform_action(self.table.doppelganger_role)
+                await self.perform_action(self.table.doppelganger_role)
 
         elif self.table.doppelganger_wakeup_count == 2:
             if self.table.doppelganger_role == 'Пьяница':  # for the second wakeup
-                self.perform_action(self.table.doppelganger_role)
+                await self.perform_action(self.table.doppelganger_role)
 
         elif self.table.doppelganger_wakeup_count == 3:
             if self.table.doppelganger_role in ['Интриган', 'Ревизор', 'Жаворонок']:  # for the third wakeup
                 # If the doppelganger looked at the Morninger card, he performs the Morninger's action on the third call
                 if self.table.doppelganger_role == 'Жаворонок':
-                    self.perform_action(self.table.doppelganger_role)
+                    await self.perform_action(self.table.doppelganger_role)
                 else:
                     # for 'Интриган', 'Ревизор' it should be modified functiond
-                    self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
+                    await self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
 
     async def guard_action(self):
         if self.table.guarded_card is None:  # so he is first to act with the token.py

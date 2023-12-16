@@ -6,6 +6,7 @@ from aiogram.types import Message
 from data import game_service
 from core.gameplay import Table
 from aiogram.filters import BaseFilter
+from data import communication
 
 # Инициализируем роутер уровня модуля
 router = Router()
@@ -29,7 +30,7 @@ class Positions(Enum):
     player = [1, 2, 3, 4, 5, 6]
 
 
-class PromptFormat(Enum):
+class PromptFormat(Enum):  # проблема в том что в игре имя роли хранится как строка на русском языке
     doppelganger = ['player']
     guard = ['any']
     alpha = ['player']
@@ -94,18 +95,24 @@ async def process_in_game_command(message: Message, user_id: str, current_table:
     if current_table.next_role is None:
         await message.answer("It's nobody's turn now")
     elif current_table.next_role == 'Voting':
-        await message.answer(game_service.accept_vote(current_table.game_id, user_id, message.text))
+        if -1 <= int(message.text) <= current_table.num_players:
+            communication.set_player_input(user_id, list(map(int, message.text.split())))
+        else:
+            await message.answer(f"Incorrect vote.\nPlease enter a number between -1 and {current_table.num_players}")
+        # calls function in game service, not needed
+        # await message.answer(game_service.accept_vote(current_table.game_id, user_id, message.text))
     elif current_table.performer_position != current_table.players.index(user_id):  # whether this is a turn of a player
         await message.answer("It's not your turn now")
     else:
         action_args: list[int] = list(map(int, message.text.split()))
-        answer: str = validate_input(current_table.next_role, action_args,
-                                     current_table.performer_position, current_table.guarded_card,
-                                     current_table.num_players, current_table.num_center)
+        answer: str = 'Input seems valid'
+        #    validate_input(current_table.next_role, action_args,
+        #                             current_table.performer_position, current_table.guarded_card,
+        #                             current_table.num_players, current_table.num_center)
         if answer != 'Input seems valid':
             await message.answer("Incorrect format of data. Should be {pformat.next_role}.")
         else:
-            await message.answer(game_service.set_player_input(user_id, action_args))
+            communication.set_player_input(user_id, action_args)
 
 
 '''

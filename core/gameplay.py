@@ -2,6 +2,7 @@ import random
 import time
 from collections import Counter
 from dataclasses import dataclass, field
+
 # from enum import Enum
 
 # from core.actions import Actions
@@ -16,6 +17,144 @@ min_num_players = MIN_NUM_PLAYERS
 max_num_players = MAX_NUM_PLAYERS
 awards = AWARDS
 format_dict = {}
+
+
+
+@dataclass
+class Table:
+    # general
+    game_id: str
+    admin_id: str
+    status: str
+
+    # to start a game
+    cards_set: list[str]
+    roles_night_order: list[str]
+    awards: dict  # dict with points for victory
+    players: list[str]  # list of players IDs: str
+    # players_names: list[int]  # list of players usernames
+
+    # for night actions
+    actions: any = None  # import will be done in night actions module
+    next_role: str | None = None  # "Werewolf" or "Voting"
+    performer_position: int | None = None  # to keep track of the performing player
+    guarded_card: int | None = None  # card blocked from actions index
+    doppelganger_role: int | None = None
+    doppelganger_wakeup_count: int = 0
+    doppelganger_positions: int | None = None  # in case he is inspector or intriguer
+    inspector_positions: int | None = None
+    intriguer_positions: int | None = None
+
+    # for determining winners
+    teams: list[str] = field(default_factory=list)
+    executed: int | None = None
+    winner_team: str = 'error_no_winners'
+    scores: list[int] = field(default_factory=list)  # Correct: each instance will get a new list
+
+    def __post_init__(self):
+        self.testing: bool = True
+        self.cards = list(self.cards_set)
+        self.num_players = len(self.players) - NUM_CARDS_IN_CENTER
+        self.num_center = NUM_CARDS_IN_CENTER
+        random.shuffle(self.cards)
+        self.roles = list(self.cards)
+
+        # Uncomment for debugging
+        # self.cards = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
+
+    def id_from_position(self, player_position: int) -> str:
+        return self.players[player_position]
+
+    # stages:
+    async def night_actions(self):
+        from core.actions import Actions
+        self.actions = Actions(self)
+        for role in self.roles_night_order:
+            await send_multiple(self.players, f"Turn of {role}")
+            for i, player in enumerate(self.roles[:-NUM_CARDS_IN_CENTER]):
+                if player == role:
+                    # Set the current player's position
+                    self.performer_position = i
+                    self.next_role = role
+                    from data import game_service
+                    game_service.game_repo.save_game_state(self.game_id, self, self.status)
+                    # Perform the action
+                    await self.actions.perform_action(role)
+            if self.testing:
+                print(self.cards)
+
+    async def discussion(self):
+        t = len(self.cards[:-NUM_CARDS_IN_CENTER])
+
+        await send_multiple(self.players, f"It is time for discussion, you have {t + 2} minutes")
+        if self.testing:
+            time.sleep(3)  # lower time for testing
+        else:
+            time.sleep(t * 60)  # wait n+2 minutes
+        await send_multiple(self.players, f"You have 2 minutes left. After time is over you must stop talking.")
+        if self.testing:
+            time.sleep(2)  # lower time for testing
+        else:
+            time.sleep(2 * 60)  # wait 2 minutes
+        await send_multiple(self.players, f"Time is up, stop discussing now!\nThink of your vote now!\n-1 stands for peaceful day")
+        if self.testing:
+            time.sleep(1)  # lower time for testing
+        else:
+            time.sleep(10)  # wait 10 seconds before voting
+
+    def get_teams(self):
+        for player in self.cards[:self.num_players]:
+            if player == 'Двойник':
+                player = self.doppelganger_role  # substitute doppelganger with his actual card
+            if player == 'Камикадзе':
+                self.teams.append('blue')
+            elif player in ['Вожак', 'Вервульф', 'Приспешник']:
+                self.teams.append('red')
+            else:
+                self.teams.append('green')
+
+    def voting(self, votes):
+        # Count the votes
+        vote_counts = Counter(votes)
+        max_votes = max(vote_counts.values())
+        # Get the players with the most votes
+        max_voted = [player for player, count in vote_counts.items() if count == max_votes]
+        # for purposes of determining a winner his color must be green
+        self.teams = ['green' if role == 'Приспешник' else team for role, team in
+                      zip(self.cards[:self.num_players], self.teams)]
+        # Determine the executed player
+        if len(max_voted) > 1:
+            # If there's a tie, use the priority order
+            priority_order = ['blue', 'red', 'green', 'peaceful day']
+            self.executed = min(max_voted, key=lambda card: priority_order.index(self.teams[card]))
+        else:
+            self.executed = max_voted[0]
+
+        if self.executed != -1:  # if NOT peaceful day
+            executed_team = self.teams[self.executed]
+            if executed_team == 'blue':
+                self.winner_team = 'blue'
+            elif executed_team == 'red':
+                self.winner_team = 'green'
+            elif executed_team == 'green':
+                self.winner_team = 'red'
+        else:  # if peaceful day
+            if any(team == 'red' for team in self.teams):
+                self.winner_team = 'red'
+            else:
+                self.winner_team = 'green'
+        # changing color back for correct scoring
+        self.teams = ['red' if role == 'Приспешник' else team for role, team in
+                      zip(self.cards[:self.num_players], self.teams)]
+
+    def get_scores_list(self):
+        # Determine the score for each player
+
+        for player in self.teams:
+            if player == self.winner_team:
+                self.scores.append(self.awards[self.winner_team])
+            else:
+                self.scores.append(0)
 
 
 async def get_game_setup(admin=None, players_joined=None):
@@ -128,8 +267,8 @@ async def get_vote(player, num_players):
             return -1  # Or handle this case as you see fit
 
         try:
-            vote_str = await get_from_player(player, "Enter your vote: ")  # Remove leading and trailing spaces
-            vote = int(vote_str.strip())
+            vote_list: list = await get_from_player(player, "Enter your vote: ")
+            vote = int(vote_list[0])  # get from player return list
 
             if -1 <= vote <= num_players:
                 return vote  # Exit the loop and return the vote
@@ -156,163 +295,39 @@ async def play_round(table):
     table.cards = table.cards_set
     # shuffle the cards HERE
 
-    table.roles = table.cards
-
+    table.roles = table.cards.copy()
 
     await send_multiple(table.players, f"The set of cards for this round is: {cards_set}")
-    # for debugging
     for player_id, card in zip(table.players, table.cards[:table.num_players]):
-        await send_to_player(player_id, f"Your ID is {player_id}, your card is {card}")  # players know their cards
+        await send_to_player(player_id, f"Your card is {card}")  # players know their cards
     await table.night_actions()
     await table.discussion()
     table.get_teams()
     votes = []
+    # print(table.next_role)
     table.next_role = 'Voting'
-    for player in range(table.num_players):
-        votes.append(await get_vote(player, table.num_players))
-    # votes_string = await get_from_player  ("All", "Enter votes separated with spaces: ")
+    from data import game_service
+    game_service.game_repo.save_game_state(table.game_id, table, table.status)
+    # Now modify the loop like this:
+    vote_tasks = []
+    import asyncio
+    for player in table.players:
+        # Start the get_vote as a task so it doesn't wait for others to finish
+        task = asyncio.create_task(get_vote(player, table.num_players))
+        vote_tasks.append(task)
+
+    # Now you need to await the tasks and collect the votes
+    votes = await asyncio.gather(*vote_tasks)
     # votes = [int(vote) for vote in votes_string.split(" ")]
     table.voting(votes)
     table.get_scores_list()
+    game_service.game_repo.save_game_state(table.game_id, table, table.status)
+    game_service.game_repo.move_table(table.game_id, 'created', 'completed')
+
     await send_multiple(table.players, f"The final position is {table.cards}, the executed player is {table.executed}")
     await send_multiple(table.players,
                         f"The winning team is {table.winner_team}. The scores of this round are {table.scores}")
     return table.scores
-
-
-@dataclass
-class Table:
-    # general
-    game_id: str
-    admin_id: str
-    status: str
-
-    # to start a game
-    cards_set: list[str]
-    roles_night_order: list[str]
-    awards: dict  # dict with points for victory
-    players: list[str]  # list of players IDs: str
-    # players_names: list[int]  # list of players usernames
-
-    # for night actions
-    next_role: str | None = None  # "Werewolf" or "Voting"
-    performer_position: int | None = None  # to keep track of the performing player
-    guarded_card: int | None = None  # card blocked from actions index
-    doppelganger_role: int | None = None
-    doppelganger_wakeup_count: int = 0
-    doppelganger_positions: int | None = None  # in case he is inspector or intriguer
-    inspector_positions: int | None = None
-    intriguer_positions: int | None = None
-
-    # for determining winners
-    teams: list[str] = field(default_factory=list)
-    executed: int | None = None
-    winner_team: str = 'error_no_winners'
-    scores: list[int] = field(default_factory=list)  # Correct: each instance will get a new list
-
-    def __post_init__(self):
-        self.testing: bool = True
-        self.cards = list(self.cards_set)
-        self.num_players = len(self.players) - NUM_CARDS_IN_CENTER
-        self.num_center = NUM_CARDS_IN_CENTER
-        random.shuffle(self.cards)
-        self.roles = list(self.cards)
-        self.actions = None  # import will be done in night actions module
-
-        # Uncomment for debugging
-        # self.cards = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец', 'Вервульф', 'Вервульф', 'Шериф']
-
-    def id_from_position(self, player_position: int) -> str:
-        return self.players[player_position]
-
-    # stages:
-    async def night_actions(self):
-        from core.actions import Actions
-        self.actions = Actions(self)
-        for role in self.roles_night_order:
-            await send_multiple(self.players, f"Turn of {role}")
-            for i, player in enumerate(self.roles[:-NUM_CARDS_IN_CENTER]):
-                if player == role:
-                    # Set the current player's position
-                    self.performer_position = i
-                    self.next_role = role
-                    # Perform the action
-                    self.actions.perform_action(role)
-            if self.testing:
-                print(self.cards)
-
-    async def discussion(self):
-        t = len(self.cards[:-NUM_CARDS_IN_CENTER])
-
-        await send_multiple(self.players, f"It is time for discussion, you have {t + 2} minutes")
-        if self.testing:
-            time.sleep(3)  # lower time for testing
-        else:
-            time.sleep(t * 60)  # wait n+2 minutes
-        await send_multiple(self.players, f"You have 2 minutes left. After time is over you must stop talking.")
-        if self.testing:
-            time.sleep(2)  # lower time for testing
-        else:
-            time.sleep(2 * 60)  # wait 2 minutes
-        await send_multiple(self.players, f"Time is up, now close your eyes and vote")
-        if self.testing:
-            time.sleep(1)  # lower time for testing
-        else:
-            time.sleep(10)  # wait 10 seconds before voting
-
-    def get_teams(self):
-        for player in self.cards[:self.num_players]:
-            if player == 'Двойник':
-                player = self.doppelganger_role  # substitute doppelganger with his actual card
-            if player == 'Камикадзе':
-                self.teams.append('blue')
-            elif player in ['Вожак', 'Вервульф', 'Приспешник']:
-                self.teams.append('red')
-            else:
-                self.teams.append('green')
-
-    def voting(self, votes):
-        # Count the votes
-        vote_counts = Counter(votes)
-        max_votes = max(vote_counts.values())
-        # Get the players with the most votes
-        max_voted = [player for player, count in vote_counts.items() if count == max_votes]
-        # for purposes of determining a winner his color must be green
-        self.teams = ['green' if role == 'Приспешник' else team for role, team in
-                      zip(self.cards[:self.num_players], self.teams)]
-        # Determine the executed player
-        if len(max_voted) > 1:
-            # If there's a tie, use the priority order
-            priority_order = ['blue', 'red', 'green', 'peaceful day']
-            self.executed = min(max_voted, key=lambda card: priority_order.index(self.teams[card]))
-        else:
-            self.executed = max_voted[0]
-
-        if self.executed != -1:  # if NOT peaceful day
-            executed_team = self.teams[self.executed]
-            if executed_team == 'blue':
-                self.winner_team = 'blue'
-            elif executed_team == 'red':
-                self.winner_team = 'green'
-            elif executed_team == 'green':
-                self.winner_team = 'red'
-        else:  # if peaceful day
-            if any(team == 'red' for team in self.teams):
-                self.winner_team = 'red'
-            else:
-                self.winner_team = 'green'
-        # changing color back for correct scoring
-        self.teams = ['red' if role == 'Приспешник' else team for role, team in
-                      zip(self.cards[:self.num_players], self.teams)]
-
-    def get_scores_list(self):
-        # Determine the score for each player
-
-        for player in self.teams:
-            if player == self.winner_team:
-                self.scores.append(self.awards[self.winner_team])
-            else:
-                self.scores.append(0)
 
 
 async def play(current_table: Table):
@@ -325,17 +340,15 @@ async def play(current_table: Table):
     # cards_set = ['Двойник', 'Жаворонок', 'Тигар', 'Вервульф', 'Приспешник', 'Камикадзе', 'Тигар', 'Тигар']
 
     # ДЛЯ ТЕСТОВ можно не перемешивать карты в Table
-    current_table.cards_set = ['Приспешник', 'Камикадзе', 'Воришка', 'Жаворонок', 'Провидец']  # , 'Вервульф', 'Вервульф', 'Шериф']
+    current_table.cards_set = ['Воришка', 'Жаворонок', 'Приспешник', 'Камикадзе', 'Провидец']  # , 'Вервульф', 'Вервульф', 'Шериф']
     current_table.num_players = len(current_table.players)
-    num_rounds = 1
 
     current_table.roles_night_order = get_night_order(current_table.cards_set)
     scores = [0] * current_table.num_players
     await send_multiple(current_table.players,
-                        f"We are starting a game with {current_table.num_players} players and will play {num_rounds} round(-s).")
-    # for player in range(num_players): await send_to_player(player, f"Your position is: {player}. The deck: {cards_set}")
+                        f"We are starting a game with {current_table.num_players} players.")  # and will play {num_rounds} round(-s).")
     # cycle for rounds
-    for round_id in range(num_rounds):
+    for round_id in range(1):  # NO functionality for multy-rounds now
         current_table.status = 'started'
         # table = Table(game_id, admin_id, status, cards_set, roles_night_order, AWARDS, players)
 
@@ -350,5 +363,5 @@ async def play(current_table: Table):
             await send_to_player(current_table.players[player], f"You got {scores[player]} point(-s) for victory")
         else:
             await send_to_player(current_table.players[player], f"You lose in this round and receive no points")
-    await send_multiple(current_table.players, f"The final scores are: {scores}")
-    await send_multiple(current_table.players, f"The winner got {max(scores)} points")
+    # await send_multiple(current_table.players, f"The final scores are: {scores}")
+    # await send_multiple(current_table.players, f"The winner got {max(scores)} points")

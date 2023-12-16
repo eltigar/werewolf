@@ -38,7 +38,7 @@ def display(name):
     # for attribute, value in attributes.items():
     #    print(attribute, "=", value)
 
-show = 1
+show = 3
 if show == 1: name = 'users.pkl'
 elif show == 2: name = 'started_games.pkl'
 elif show == 3: name = 'created_games.pkl'
