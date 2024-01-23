@@ -2,7 +2,7 @@ import os
 import pickle
 
 from core.gameplay import Table
-
+all_statuses = ("created", "started", "completed", "cancelled", "aborted")
 
 class GameRepository:
     def save_game_state(self, game_id: str, table_object: Table, status: str) -> None:
@@ -26,7 +26,7 @@ class GameRepository:
             target_tables = self.load_all_tables(to_status)
             # Move the game
             target_tables[game_id] = current_tables.pop(game_id)  # pop both remove and return object
-            target_tables[game_id].status = to_status
+            target_tables[game_id].status = to_status  # has no effect in some cases (already changed)
             # Save the updated states
             self.save_tables(current_tables, from_status)
             self.save_tables(target_tables, to_status)
@@ -47,13 +47,9 @@ class GameRepository:
         else:
             return {}  # Return an empty dictionary if file doesn't exist
 
-    def get_filename_based_on_status(self, status):
-        if status == "created":
-            return 'created_games.pkl'
-        elif status == "started":
-            return 'started_games.pkl'
-        elif status == "cancelled" or "aborted":
-            return 'canceled_and_aborted_games.pkl'
+    def get_filename_based_on_status(self, status: str):
+        if status in all_statuses:
+            return f'{status}_games.pkl'
         else:
             raise ValueError("Invalid game status")
 

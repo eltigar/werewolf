@@ -27,10 +27,11 @@ class GameService:
             return "User already in a game"
         else:
             game_id = str(uuid4())[:6]
-            current_table = Table(game_id, admin_id, status='created', cards_set=[],
-                                  roles_night_order=NIGHT_ACTIONS_ORDER, players=[admin_id], awards=AWARDS)
+            current_table = Table(game_id, admin_id, status='created',
+                                  roles_night_order=NIGHT_ACTIONS_ORDER, awards=AWARDS,
+                                  players=[admin_id], nicknames=[admin.username])
             self.game_repo.save_game_state(game_id, current_table, status='created')  # load, add game pickle bac
-            self.user_repo.update_game_id_and_status(admin_id, game_id, 'created')
+            self.user_repo.update_game_id_and_status_for_user(admin_id, game_id, 'created')
             return f"Game {game_id} is created. Tap to copy: `/join {game_id}`"
 
     def join_game(self, user_id, game_id) -> str:
@@ -47,8 +48,9 @@ class GameService:
         if not current_table:
             return f"Game with ID=`{game_id}` not found in created games."
         current_table.players.append(user_id)
+        current_table.nicknames.append(user.username)
         self.game_repo.save_game_state(game_id, current_table, status='created')  # update created games db
-        self.user_repo.update_game_id_and_status(user_id, game_id, 'created')  # update users db
+        self.user_repo.update_game_id_and_status_for_user(user_id, game_id, 'created')  # update users db
         return f"User {user_id} joined game {game_id}."
 
     def leave_game(self, user_id) -> str:
@@ -64,8 +66,9 @@ class GameService:
         if current_table.admin_id == user_id:
             return "Admin cannot leave the game."
         current_table.players.remove(user_id)
+        current_table.nicknames.remove(user.username)
         self.game_repo.save_game_state(game_id, current_table, status='created')  # update created games db
-        self.user_repo.update_game_id_and_status(user_id, None, None)  # update users db
+        self.user_repo.update_game_id_and_status_for_user(user_id, None, None)  # update users db
         return f"User {user_id} has left game {current_table.game_id}."
 
     def kick_player(self, admin_id, user_id_to_kick) -> str:
@@ -86,8 +89,9 @@ class GameService:
         if user_id_to_kick not in current_table.players:
             return "User to kick is not a part of a game"
         current_table.players.remove(user_id_to_kick)
+        current_table.nicknames.remove(user.username)
         self.game_repo.save_game_state(game_id, current_table, status='created')  # update created games db
-        self.user_repo.update_game_id_and_status(user_id_to_kick, None, None)  # update users db
+        self.user_repo.update_game_id_and_status_for_user(user_id_to_kick, None, None)  # update users db
         return f"Player {user_id_to_kick} has been kicked from game {game_id}."
 
     def cancel_game(self, admin_id) -> str:
@@ -103,13 +107,17 @@ class GameService:
             return "User not Admin of the game."
         current_table.admin_id = None
         for player_id in current_table.players:
-            self.user_repo.update_game_id_and_status(player_id, None, None)  # update users db
+            self.user_repo.update_game_id_and_status_for_user(player_id, None, None)  # update users db
         self.game_repo.move_table(game_id, 'created', 'cancelled')
         return f"Game {game_id} was cancelled by admin {admin_id}."
 
-    def get_participants(self, game_id) -> list[int] | str:
+    def get_participants_nicknames(self, game_id) -> list[int] | str:
         current_table = self.game_repo.load_table(game_id, 'created')
-        return str(current_table.players) if current_table else "Game not found."
+        return str(current_table.nicknames) if current_table else "Game not found."
+
+    def get_admin(self, game_id) -> str:
+        current_table = self.game_repo.load_table(game_id, 'created')
+        return str(current_table.admin_id) if current_table else "Game not found."
 
     def set_cards(self, admin_id, cards: list):
         user = self.user_repo.get_user(admin_id)
@@ -127,6 +135,7 @@ class GameService:
         current_table.cards_set = cards
         self.game_repo.save_game_state(game_id, current_table, 'created')
         return f"Cards {cards} set for game {game_id}."
+
 
     def transfer_admin(self, admin_id, new_admin_id):
         user = self.user_repo.get_user(admin_id)
@@ -169,7 +178,8 @@ class GameService:
         # for player_id in .players: .usernames.append(get_username(player_id))
 
         for player_id in current_table.players:
-            self.user_repo.update_game_id_and_status(player_id, 'same', 'started')  # update users db
+            self.user_repo.update_game_id_and_status_for_user(player_id, 'same', 'started')  # update users db
+
         self.game_repo.move_table(current_table.game_id, 'created', 'started')
         await play(current_table)
 
@@ -211,7 +221,6 @@ class GameService:
         current_table = self.game_repo.load_table(game_id, 'started')
         current_table.admin_id = None
         for player_id in current_table.players:
-            self.user_repo.update_game_id_and_status(player_id, None, None)  # update users db
+            self.user_repo.update_game_id_and_status_for_user(player_id, None, None)  # update users db
         self.game_repo.move_table(game_id, 'started', 'cancelled')
         return f"Game {game_id} was aborted by admin."
-

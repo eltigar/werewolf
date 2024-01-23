@@ -2,10 +2,10 @@
 import asyncio
 
 
-async def send_to_player(player_id: str, message: str):
+async def send_to_player(player_id: str, message: str, keyboard=None):
     from bot import bot
 
-    await bot.send_message(player_id, message)
+    await bot.send_message(player_id, message, reply_markup=keyboard, parse_mode='Markdown')
 
 
 async def send_multiple(players: list[str], message: str):
@@ -13,9 +13,9 @@ async def send_multiple(players: list[str], message: str):
         await send_to_player(player_id, message)
 
 
-async def get_from_player(player_id: str, prompt: str):
+async def get_from_player(player_id: str, prompt: str, keyboard=None):
     # Отправляем игроку запрос
-    await send_to_player(player_id, prompt)
+    await send_to_player(player_id, prompt, keyboard)
 
     # Сохраняем состояние игры
     # game_service.game_repo.save_game_state(g) save_game_state()

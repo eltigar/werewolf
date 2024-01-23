@@ -1,10 +1,13 @@
+import asyncio
+import random
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 from core.global_setup import NUM_CARDS_IN_CENTER
 from data.communication import get_from_player, send_to_player, send_multiple
-
 cards_in_center = NUM_CARDS_IN_CENTER
 
 
-#  потом надо перенаправить дату чтобы она из json шла
 
 class Actions:
     def __init__(self, table):
@@ -34,8 +37,21 @@ class Actions:
         # Get the action function from the action map
         action_func = self.action_map.get(role)
         if action_func is not None:
-            # Call the action function with any additional arguments
-            await action_func(*args, **kwargs)
+            # we already set timer in gameplay
+            if self.table.testing:
+                random_delay = 1
+            else:
+                random_delay = 1  # random.triangular(5, 30, 10)
+
+            # Define the timer coroutine
+            async def timer():
+                await asyncio.sleep(random_delay)
+
+            # Run both the action and the timer concurrently
+            await asyncio.gather(
+                action_func(*args, **kwargs),  # Player interaction
+                timer()  # Timer for randomized delay
+            )
         else:
             pass
             # raise exception
@@ -44,7 +60,8 @@ class Actions:
     async def get_action_args(self):
         # Get the input from the user
         inputted_args = await get_from_player(self.table.id_from_position(self.table.performer_position),
-                                        "It's your turn\nEnter the action arguments separated by spaces: ")
+                                              "Ваш ход.\nВыберите карту, с которой вы хотите совершить действие:",
+                                              keyboard=generate_table_keyboard(self.table))
 
         # Convert the input to a list of integers
         # action_args = list(map(int, inputted_args))  # it is already formatted
@@ -58,37 +75,38 @@ class Actions:
             # Check if the input matches the format
             if len(action_args) != len(input_format):
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
-                               "Invalid number of arguments. Please try again.")
+                                     "Invalid number of arguments. Please try again.")
                 continue
 
             # Check if the input is valid
             for i, arg in enumerate(action_args):
                 if not isinstance(arg, int):
                     await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                   "Invalid input type. Please enter an integer.")
+                                         "Invalid input type. Please enter an integer.")
                     break
                 elif self.table.performer_position == arg:
                     await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                   "You cannot act on your own card. Please try again.")
+                                         "Вы не можете выбрать свою собственную карту, попробуйте еще раз.")
+                                         # "You cannot act on your own card. Please try again.")
                     break
                 elif self.table.guarded_card == arg:
                     await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                   "The card you entered is blocked. Please try again.")
+                                         "The card you entered is blocked. Please try again.")
                     break
                 elif input_format[i] == 'player':
                     if not (0 <= arg < len(self.table.roles) - cards_in_center):
                         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                       "Invalid player position. Please try again.")
+                                             "Invalid player position. Please try again.")
                         break
                 elif input_format[i] == 'center':
                     if not (-cards_in_center <= arg < 0):
                         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                       "Invalid center position. Please try again.")
+                                             "Invalid center position. Please try again.")
                         break
                 elif input_format[i] == 'any':
                     if not (0 <= arg < len(self.table.roles)):
                         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                       "Invalid card position. Please try again.")
+                                             "Invalid card position. Please try again.")
                         break
             else:  # runs in case we didn't break inside "for" loop
                 # If all the arguments are unique, return them
@@ -96,7 +114,8 @@ class Actions:
                     return action_args
                 else:  # if there are repetitions in input
                     await send_to_player(self.table.id_from_position(self.table.performer_position),
-                                   "You cannot act on the same card twice. Please try again.")
+                                         "Вы выбрали одну карту дважды. Попробуйте еще раз.")
+                                         # "You cannot act on the same card twice. Please try again.")
 
     # basic actions:
     def get_card_info(self, position):  # get 0 to n-1 for players, and -1, -2, -3 for center right to left
@@ -122,12 +141,12 @@ class Actions:
             positions_to_act = await self.get_and_validate_input(['player'])
             self.table.doppelganger_role = self.table.cards[positions_to_act[0]]
             await send_to_player(self.table.id_from_position(self.table.performer_position),
-                           f"You have become a doppelganger of the role {self.table.doppelganger_role}.")
+                                 f"You have become a doppelganger of the role {self.table.doppelganger_role}.")
 
             # in case he is guard
             if self.table.doppelganger_role == 'Стражник':
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
-                               "You must block Стражник now and he will not act")
+                                     "You must block Стражник now and he will not act")
                 self.table.guarded_card = positions_to_act[0]
 
             # in case Alpha Вожак
@@ -140,7 +159,7 @@ class Actions:
             elif self.table.doppelganger_role in ['Вервульф', 'Приспешник', 'Тигар']:
                 # his role is set to a new role, so he will wakeup with his new team
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
-                               "Now you have to wakeup again with your new team.")
+                                     "Now you have to wakeup again with your new team.")
                 self.table.roles[self.table.performer_position] = self.table.doppelganger_role
 
 
@@ -148,19 +167,19 @@ class Actions:
             # in case double actions (inspector, intriguer)
             elif self.table.doppelganger_role in ['Ревизор', 'Интриган']:
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
-                               "Act first action immediately, second on a special slot")
+                                     "Act first action immediately, second on a special slot")
                 await self.perform_action(self.table.doppelganger_role, from_doppelganger=True)
 
             # in case he must perform later
             elif self.table.doppelganger_role in ['Жаворонок', 'Пьяница']:
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
-                               "Act your action on a special slot")
+                                     "Act your action on a special slot")
                 pass  # nothing to do now
 
             # in case he looked at any other action card  # should be double-checked for each role
             else:
                 await send_to_player(self.table.id_from_position(self.table.performer_position),
-                               "Act immediately according to your new role")
+                                     "Act immediately according to your new role")
                 await self.perform_action(self.table.doppelganger_role)
 
         elif self.table.doppelganger_wakeup_count == 2:
@@ -182,7 +201,7 @@ class Actions:
             positions_to_act = await self.get_and_validate_input(['any'])  # type = list
             self.table.guarded_card = positions_to_act[0]
             await send_to_player(self.table.id_from_position(self.table.performer_position),
-                           f"The Guard token has been put on the card at position {positions_to_act[0]}.")
+                                 f"The Guard token has been put on the card at position {positions_to_act[0]}.")
         else:  # if token.py is putted on his own card by the doppelganger
             pass
 
@@ -191,7 +210,7 @@ class Actions:
         # The alpha can look at any other player's card
         positions_to_act = await self.get_and_validate_input(['player'])
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
+                             f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
         # new role to wake up on time
         self.table.roles[self.table.performer_position] = 'Вервульф'
 
@@ -199,40 +218,43 @@ class Actions:
         # The werewolves can look at each other
         werewolves_positions = [i for i, role in enumerate(self.table.roles[:-cards_in_center]) if role in ['Вервульф']]
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"The werewolves are at positions {werewolves_positions}.")
+                             f"The werewolves are at positions {werewolves_positions}.")
 
         # If there is only one werewolf, he can look at one card in the center
         if len(werewolves_positions) == 1:
             await send_to_player(self.table.id_from_position(self.table.performer_position),
-                           "Which center card you want to know?")
+                                 "Which center card you want to know?")
             positions_to_act = await self.get_and_validate_input(['center'])
-            await send_to_player(self.table.performer_position,
-                           f"The card in the center at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
+            await send_to_player(self.table.id_from_position(self.table.performer_position),
+                                 f"The card in the center at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
 
     async def minion_action(self):
         # The minion can see who the werewolves are
         werewolves_positions = [i for i, role in enumerate(self.table.roles[:-cards_in_center]) if
                                 role in ['Вервульф', 'Вожак']]
-        await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"The werewolves are at positions {werewolves_positions}.")
+        if werewolves_positions == []:
+            answer = "There are no Werewolfs"
+        else:
+            answer = f"The werewolves are at positions {werewolves_positions}."
+        await send_to_player(self.table.id_from_position(self.table.performer_position), answer)
 
     async def tigar_action(self):
         # The tigars can see each other
         tigars_positions = [i for i, role in enumerate(self.table.roles[:-cards_in_center]) if role == 'Тигар']
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"The tigars are at positions {tigars_positions}.")
+                             f"The tigars are at positions {tigars_positions}.")
 
     async def sheriff_action(self):
         # The sheriff can look at any other player's card
         positions_to_act = await self.get_and_validate_input(['player'])
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
+                             f"The card of the player at position {positions_to_act[0]} is {self.table.cards[positions_to_act[0]]}.")
 
     async def seer_action(self):
         # The seer can look at two cards in the center
         positions_to_act = await self.get_and_validate_input(['center', 'center'])
-        await send_to_player(self.table.performer_position,
-                       f"The cards in the center at positions {positions_to_act} are {self.table.cards[positions_to_act[0]]} and {self.table.cards[positions_to_act[1]]}.")
+        await send_to_player(self.table.id_from_position(self.table.performer_position),
+                             f"The cards in the center at positions {positions_to_act} are {self.table.cards[positions_to_act[0]]} and {self.table.cards[positions_to_act[1]]}.")
 
     async def inspector_action(self, from_doppelganger=False):
         if from_doppelganger:
@@ -244,11 +266,11 @@ class Actions:
             # The inspector can look at any other player's card
             role_positions = await self.get_and_validate_input(['player'])
             await send_to_player(self.table.id_from_position(self.table.performer_position),
-                           f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}.")
+                                 f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}.")
         else:  # for the second wakeup
             # The inspector can look at the same player's card again
             await send_to_player(self.table.id_from_position(self.table.performer_position),
-                           f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}.")
+                                 f"The card of the player at position {role_positions[0]} is {self.table.cards[role_positions[0]]}.")
 
         #  store positions in the correct place
         if from_doppelganger:
@@ -284,7 +306,7 @@ class Actions:
         self.table.cards[self.table.performer_position], self.table.cards[positions_to_act[0]] = \
             self.table.cards[positions_to_act[0]], self.table.cards[self.table.performer_position]
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"You got a card of {self.table.cards[self.table.performer_position]}.")
+                             f"You got a card of {self.table.cards[self.table.performer_position]}.")
 
     async def troublemaker_action(self):
         # The troublemaker can swap the cards of two other players
@@ -302,18 +324,37 @@ class Actions:
         # The drunk swaps his card with a card from the center
         positions_to_act = await self.get_and_validate_input(['center'])
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"You were a {self.table.cards[self.table.performer_position]} before the swap.")
+                             f"You were a {self.table.cards[self.table.performer_position]} before the swap.")
         self.table.cards[self.table.performer_position], self.table.cards[positions_to_act[0]] = \
             self.table.cards[positions_to_act[0]], self.table.cards[self.table.performer_position]
 
     async def morninger_action(self):
         # The morninger can look at his card after all the movements
         await send_to_player(self.table.id_from_position(self.table.performer_position),
-                       f"You are a {self.table.cards[self.table.performer_position]}.")
+                             f"You are a {self.table.cards[self.table.performer_position]}.")
 
     async def suicidal_action(self):
         # The suicidal does not perform any night actions
         pass
+
+
+def generate_table_keyboard(table) -> InlineKeyboardMarkup:
+
+    # Add player buttons
+    player_buttons = []
+    for position, nickname in zip(range(len(table.nicknames)), table.nicknames):
+        # Using player_id as callback data, modify as needed
+        button = InlineKeyboardButton(text=str(nickname), callback_data=str(position))
+        player_buttons.append(button)
+
+    center_buttons = []
+    # Add center cards (assuming a fixed number for simplicity)
+    for i in range(table.num_center):
+        button = InlineKeyboardButton(text=f"Центр {i+1}", callback_data=str(i-3))  # to get -3 -2 -1
+        center_buttons.append(button)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[player_buttons, center_buttons])
+    return keyboard
 
 # print(get_night_order(complete_cards_set([], 150)))
 # roles_dict = {}

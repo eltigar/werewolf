@@ -38,11 +38,13 @@ def display(name):
     # for attribute, value in attributes.items():
     #    print(attribute, "=", value)
 
-show = 3
-if show == 1: name = 'users.pkl'
+show = 2
+if show == 0: name = 'users.pkl'
+elif show == 1: name = 'created_games.pkl'
 elif show == 2: name = 'started_games.pkl'
-elif show == 3: name = 'created_games.pkl'
-elif show == 4: name = 'canceled_and_aborted_games.pkl'
+elif show == 3: name = 'completed_games.pkl'
+elif show == 4: name = 'cancelled_games.pkl'
+elif show == 5: name = 'aborted_games.pkl'
 
 if __name__ == '__main__':
     display_pickle_content(name)

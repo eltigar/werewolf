@@ -13,7 +13,7 @@ def load_user_data(user_id: str) -> User:
     users = load_all_users()
     return users.get(user_id)
 
-def load_all_users() -> dict[str:User]:
+def load_all_users() -> dict[str, User]:
     if os.path.exists('users.pkl'):
         with open('users.pkl', 'rb') as f:
             try:
@@ -44,7 +44,7 @@ class UserRepository:
             user.username = new_name
             save_user_data(user_id, user)
 
-    def get_name(self, user_id):
+    def get_nickname(self, user_id):
         user = self.get_user(user_id)
         return user.username if user else None
 
@@ -59,7 +59,7 @@ class UserRepository:
             else:  # for other statuses, including None
                 return None
 
-    def update_game_id_and_status(self, user_id, game_id, status) -> None:
+    def update_game_id_and_status_for_user(self, user_id: str, game_id: str | None, status: str | None) -> None:
         if status not in ['created', 'started', 'completed', 'cancelled', 'aborted', None]:
             raise ValueError("Invalid status value")
         else:
@@ -90,7 +90,7 @@ class UserRepository:
             user.username = new_name
             self.db.save_data()
 
-    def get_name(self, user_id):
+    def get_nickname(self, user_id):
         user = self.get_user(user_id)
         return user.username if user else None
 

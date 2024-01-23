@@ -1,9 +1,9 @@
 # This code goes into the `data/__init__.py` module.
 
 # from .models import Database
-from .user_repository import UserRepository
-from .game_repository import GameRepository
-from .game_service import GameService
+from data.user_repository import UserRepository
+from data.game_repository import GameRepository
+from data.game_service import GameService
 
 
 """
@@ -23,3 +23,9 @@ game_repo = GameRepository()
 
 # Инициализация сервисов
 game_service = GameService(user_repo, game_repo)
+
+
+manual_update = False
+if __name__ == '__main__' and manual_update is True:
+    game_service.user_repo.update_game_id_and_status_for_user('346858079', None, None)
+    game_service.user_repo.update_game_id_and_status_for_user('301862148', None, None)

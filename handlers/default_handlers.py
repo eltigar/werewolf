@@ -25,7 +25,10 @@ async def change_name_command(message: Message):
     user_id = str(message.from_user.id)
     user = game_service.user_repo.get_user(user_id)
     new_name = message.text[13:].strip()
-    if len(new_name) == 0:
+    if user.current_game_id:
+        answer = 'You are not allowed to change name in-game'
+        await message.answer(answer, parse_mode='Markdown')
+    elif len(new_name) == 0:
         answer = LEXICON['/change_name_request']
         await message.answer(answer, parse_mode='Markdown')
         await message.answer(text=f"Ваше текущее имя: {user.username}")
@@ -51,6 +54,9 @@ async def join_game_command(message: Message):
         answer = 'Error: you have not entered game ID'
     else:
         answer = game_service.join_game(str(message.from_user.id), game_id)
+        admin = game_service.get_admin(game_id)
+        from data.communication import send_to_player
+        await send_to_player(admin, answer)
 
     await message.answer(answer)
     if answer == "success":
