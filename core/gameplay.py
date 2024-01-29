@@ -1,19 +1,16 @@
-import random
 import asyncio
-import time
+import random
 from collections import Counter
 from dataclasses import dataclass, field
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# from enum import Enum
-
-# from core.actions import Actions
-from data.communication import send_to_player, send_multiple, get_from_player
 from core.global_setup import ROLES_INCLUSION_ORDER, NIGHT_ACTIONS_ORDER, MIN_NUM_PLAYERS, MAX_NUM_PLAYERS, \
     NUM_CARDS_IN_CENTER, MAX_NUM_ROUNDS, AWARDS
+from core.roles_info import represent_cards_set, ROLES_DICT
+# from core.actions import Actions
+from data.communication import send_to_player, send_multiple, get_from_player
 from lexicon.lexicon import action_description_ru
-
 
 
 roles_inclusion_order = ROLES_INCLUSION_ORDER
@@ -25,6 +22,8 @@ awards = AWARDS
 format_dict = {}
 
 action_description = action_description_ru
+
+
 def translate_en_ru(key: str) -> str:
     dictionary = {
         'red': 'красная',
@@ -46,7 +45,7 @@ class Table:
     roles_night_order: list[str]
     awards: dict  # dict with points for victory
     players: list[str]  # list of players IDs: str
-    nicknames: list[int]  # list of players usernames
+    nicknames: list[str]  # list of players usernames
 
     cards_set: list[str] = field(default_factory=list)
 
@@ -65,9 +64,11 @@ class Table:
     teams: list[str] = field(default_factory=list)
     executed: int | None = None
     winner_team: str = 'error_no_winners'
-    scores: list[int] = field(default_factory=list)  # Correct: each instance will get a new list
+    scores: list[int] = field(default_factory=list)
+    accumulated_scores: dict[str, int] = field(default_factory=dict)
+    discussion_cancel_event: None | asyncio.Event = None
 
-    def __post_init__(self):  # runned when creating a table, not when starting a game?
+    def __post_init__(self):  # run when creating a table, not when starting a game?
         self.testing: bool = False
         self.cards = list(self.cards_set)
         self.num_players = len(self.players) - NUM_CARDS_IN_CENTER
@@ -86,89 +87,92 @@ class Table:
         from core.actions import Actions
         self.actions = Actions(self)
         for role in self.roles_night_order:
-            await send_multiple(self.players, f"__Ходит {role}.__\n{action_description[role]}")
-
-            # List to hold player actions for the current role
-            current_role_actions = []
-
-            for i, player in enumerate(self.roles[:-NUM_CARDS_IN_CENTER]):
-                if player == role:
-                    self.performer_position = i
-                    self.next_role = role
-                    from data import game_service
-                    game_service.game_repo.save_game_state(self.game_id, self, self.status)
-
-                    # Add the player's action to the list
-                    current_role_actions.append(self.actions.perform_action(role))
-
-            # Define the random delay
-            random_delay = 1 if self.testing else random.triangular(5, 30, 10)
-
-            # If there are player actions, run them concurrently with the delay
-            if current_role_actions:
-                await asyncio.gather(
-                    *current_role_actions,
-                    asyncio.sleep(random_delay)
-                )
+            if role == 'Двойник' and self.doppelganger_role is not None:
+                text = f"Ходит {str(ROLES_DICT[role])}.\nЕсли Двойник стал Ревизором, Интриганом, Пьяницей, Жаворонком, то он просыпается и выполняет свое второе/предутреннее действие."
             else:
-                # If there are no player actions, just run the delay
-                await asyncio.sleep(random_delay)
+                text = f"Ходит {str(ROLES_DICT[role])}.\n{ROLES_DICT[role].description}"
+            await send_multiple(self.players, text)
 
+            # Coroutines for role actions amd random delay
+            async def role_actions_coroutine():
+                for i, player in enumerate(self.roles[:-NUM_CARDS_IN_CENTER]):
+                    if player == role:
+                        self.performer_position = i
+                        self.next_role = role
+                        from data import game_service
+                        game_service.game_repo.save_game_state(self.game_id, self, self.status)
+                        await self.actions.perform_action(role)
+
+            async def random_delay_coroutine():
+                delay = 1 if self.testing else random.triangular(5, 30, 10)
+                await asyncio.sleep(delay)
+
+            # Run role actions and random delay concurrently
+            await asyncio.gather(
+                role_actions_coroutine(),
+                random_delay_coroutine()
+            )
             if self.testing:
                 print(self.cards)
 
-    async def discussion(self):
+    async def discussion(self):  # temp version with ability to vote early
         t = len(self.cards[:-NUM_CARDS_IN_CENTER])
-        self.testing = True
+        testing_state = self.testing
+        self.testing = True  # function is a placeholder
         await send_multiple(self.players, f"Пришло время для обсуждения, у вас {t + 2} минут.")
-        if self.testing:
-            await asyncio.sleep(3)  # lower time for testing
-        else:
-            await asyncio.sleep(t * 60)  # wait n+2 minutes
-        await send_multiple(self.players, f"Осталось 2 минуты.")
         if self.testing:
             await asyncio.sleep(2)  # lower time for testing
+            await send_multiple(self.players, f"Пожалуйста, засеките время самостоятельно.")
         else:
+            await asyncio.sleep(t * 60)  # wait n minutes
+            await send_multiple(self.players, f"Осталось 2 минуты.")
             await asyncio.sleep(2 * 60)  # wait 2 minutes
-        await send_multiple(self.players, f"Время вышло, обсуждать больше ничего нельзя!")
+            await send_multiple(self.players, f"Время вышло, обсуждать больше ничего нельзя!")
+
+        self.testing = testing_state
+
         if self.testing:
-            await asyncio.sleep(1)  # lower time for testing
+            await asyncio.sleep(5)  # lower time for testing
         else:
-            await asyncio.sleep(10)  # wait 10 seconds before voting
-        self.testing = False
+            await asyncio.sleep(30)  # wait 10 seconds before voting
 
 
-    """
-    async def discussion(self):
+
+
+    async def discussion_timer(self, delay):
+        try:
+            await asyncio.wait_for(self.discussion_cancel_event.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass  # Normal timeout, continue execution
+        if self.discussion_cancel_event.is_set():
+            raise asyncio.CancelledError
+
+    async def discussion2(self):  # renamed to pick simple function
         t = len(self.cards[:-NUM_CARDS_IN_CENTER])
         await send_multiple(self.players, f"Пришло время для обсуждения, у вас {t + 2} минут.")
 
-        # Create tasks for discussion timers
-        self.discussion_tasks = [
-            asyncio.create_task(asyncio.sleep(3 if self.testing else t * 60)),
-            asyncio.create_task(asyncio.sleep(2 if self.testing else 2 * 60)),
-            asyncio.create_task(asyncio.sleep(1 if self.testing else 5))
-        ]
-        try:
-            # Wait for the first timer (discussion period)
-            await self.discussion_tasks[0]
-            await send_multiple(self.players, f"Осталось 2 минуты.")
-            # Wait for the second timer (final 2 minutes)
-            await self.discussion_tasks[1]
-            await send_multiple(self.players, f"Время вышло, обсуждать больше ничего нельзя!")
-        except asyncio.CancelledError:
-            # If timers are cancelled, move directly to voting
-            await send_multiple(self.players, f"Переходим к досрочному голосованию.")
-        # Wait for the third timer (before voting)
-        await self.discussion_tasks[2]
+        self.discussion_cancel_event = asyncio.Event()
 
+        try:
+            await self.discussion_timer(10 if self.testing else t * 60)
+            await send_multiple(self.players, "Осталось 2 минуты.")
+
+            await self.discussion_timer(25 if self.testing else 2 * 60)
+            await send_multiple(self.players, "Время вышло, обсуждать больше ничего нельзя!")
+
+        except asyncio.CancelledError:
+            print("Discussion was cancelled.")
+            await send_multiple(self.players, "Переходим к досрочному голосованию.")
+        finally:
+            self.discussion_cancel_event = None  # Reset the event for the next discussion
+            await asyncio.sleep(5 if self.testing else 5)
 
     async def skip_discussion(self):
-        for task in self.discussion_tasks:
-            task.cancel()
-        # Clear the tasks list after canceling to avoid potential issues
-        self.discussion_tasks.clear()
-"""
+        if self.discussion_cancel_event is not None:
+            self.discussion_cancel_event.set()  # Signal to cancel the discussion
+            return 'Discussion skipped'
+        else:
+            return "Error: unable to reach discussion Event"
 
     def get_teams(self):
         for player in self.cards[:self.num_players]:
@@ -226,6 +230,27 @@ class Table:
             else:
                 self.scores.append(0)
 
+    def generate_scores_with_medals(self):
+        # Define the medals
+        medals = ["🥇", "🥈", "🥉"]
+        medals_left = medals.copy()
+        medals_count = 0
+        # Determine the unique score values
+        sorted_scores = sorted(set(self.accumulated_scores.values()), reverse=True)
+        medals_dict = {}
+        for top_result in sorted_scores[:3]:
+            for name, score in self.accumulated_scores.items():
+                if score == top_result:
+                    medals_dict[name] = medals_left[0]
+                    medals_count += 1
+            medals_left = medals[medals_count:]
+            if not medals_left:
+                break
+        # Generate the scores text with medals
+        scores_text = "\n".join(
+            f"{name}: {score}{medals_dict.get(name, '')}" for name, score in self.accumulated_scores.items())
+        return scores_text
+
 
 async def get_game_setup(admin=None, players_joined=None):
     if players_joined is not None and MIN_NUM_PLAYERS <= players_joined <= MAX_NUM_PLAYERS:
@@ -264,24 +289,37 @@ def complete_cards_set(given_cards_set, num_players):
             given_cards_set.remove(role)  # removing from the original list to exclude double-counting
         else:
             cards_set.append(role)
-        if len(cards_set) == num_players + num_cards_in_center:
+        if len(cards_set) >= num_players + num_cards_in_center:
+            cards_set = cards_set[:num_players + num_cards_in_center]
             if cards_set.count('Тигар') != 1:  # Should be none or at least 2 of them
                 break
             else:
                 cards_set.remove('Тигар')
+            # just for testing
+            if num_players == 2:
+                cards_set.remove('Баламут') if 'Баламут' in cards_set else True
+                cards_set.remove('Интриган') if 'Интриган' in cards_set else True
+
     return cards_set
 
 
 def get_night_order(cards_set):
     roles_night_order = []
+    # Determine if a second 'Двойник' is needed
+    second_timeslot_doppel = any(item in cards_set for item in ["Интриган", "Ревизор", "Пьяница", "Жаворонок"])
+    for role in night_actions_order:
+        if role in cards_set:
+            if role == 'Двойник' and 'Двойник' in roles_night_order:
+                if second_timeslot_doppel:
+                    roles_night_order.append(role)  # Add second 'Двойник' if conditions are met
+                else:
+                    pass  # no second adding for this case
+            else:
+                roles_night_order.append(role)  # Add other roles
+                if role == 'Вожак' and 'Вервульф' not in cards_set:
+                    roles_night_order.append('Вервульф')  # Special case for 'Вожак'
 
-    for action in night_actions_order:
-        if action in cards_set:
-            roles_night_order.append(action)  # if double action, should be parsed while doing so
-            if action == 'Вожак' and 'Вервульф' not in cards_set:
-                roles_night_order.append('Вервульф')  # if only Вожак we should have werewolf stage anyway
     return roles_night_order
-
 
 # communication functions
 
@@ -328,7 +366,7 @@ async def get_given_cards_set(admin=None):
         return given_cards_set
 
 
-async def get_vote(player, num_players, keyboard=None):
+async def get_vote(player, num_players, keyboard=None) -> int:
     max_attempts = 3
     attempts = 0  # Counter for the number of attempts
     while True:
@@ -337,7 +375,8 @@ async def get_vote(player, num_players, keyboard=None):
             return -1  # Or handle this case as you see fit
 
         try:
-            vote_list: list = await get_from_player(player, "Проголосуйте за одного из участников или за мирный день:", keyboard)
+            vote_list: list = await get_from_player(player, "Проголосуйте за одного из участников или за мирный день:",
+                                                    keyboard)
             vote = int(vote_list[0])  # get from player return list
 
             if -1 <= vote < num_players:
@@ -351,34 +390,44 @@ async def get_vote(player, num_players, keyboard=None):
             attempts += 1  # Increment the attempts counter
 
 
-async def prepare_to_play(admin, players_joined):
+async def prepare_round(table: Table) -> None:  # admin, players_joined):
     # game setup
+    table.cards = table.cards_set.copy()
+    await send_multiple(table.players,
+                        f"В игре участвуют: {', '.join(table.nicknames)}.\n" +
+                        represent_cards_set(ROLES_DICT, table.cards_set))
+
+    # shuffle the cards HERE
+    if not table.testing:
+        random.shuffle(table.cards)
+    table.roles = table.cards.copy()
+
+    for player_id, card in zip(table.players, table.cards[:table.num_players]):
+        await send_to_player(player_id,
+                             f"Ваша карта: {str(ROLES_DICT[card])}\n{ROLES_DICT[card].description}\nНочь начнется через 10 секунд.")  # players know their cards
+    import asyncio
+    if table.testing:
+        await asyncio.sleep(1)
+    else:
+        await asyncio.sleep(10)
+    """
     # can set admin and players_joined here
     num_players, num_rounds = await get_game_setup(admin, players_joined)
     given_cards_set = await get_given_cards_set(admin)
     cards_set = complete_cards_set(given_cards_set[:num_players + num_cards_in_center], num_players)
     return num_players, num_rounds, cards_set
+    """
 
 
-async def play_round(table):
-    cards_set, roles_night_order = table.cards_set, table.roles_night_order
-    table.cards = table.cards_set
-
-    # shuffle the cards HERE
-    random.shuffle(table.cards)
-
-    table.roles = table.cards.copy()
-
+async def play_round(table: Table) -> None:
     await send_multiple(table.players,
-                        f"В игре участвуют: {', '.join(table.nicknames)}.\n"
-                        f"Набор кард в этом раунде: {', '.join(cards_set)}\n"
-                        f"Порядок ночных действий: {', '.join(roles_night_order)}")
-    for player_id, card in zip(table.players, table.cards[:table.num_players]):
-        await send_to_player(player_id, f"Ваша карта: {card}\n{action_description[card]}")  # players know their cards
+                        f"Начинается ночь! Постарайтесь сидеть в телефоне в течение всей ночи.")
+
     await table.night_actions()
+    await send_multiple(table.players,
+                        represent_cards_set(ROLES_DICT, table.cards_set))
     await table.discussion()
     table.get_teams()
-    votes = []
     # print(table.next_role)
     table.next_role = 'Voting'
     from data import game_service
@@ -397,55 +446,47 @@ async def play_round(table):
     # votes = [int(vote) for vote in votes_string.split(" ")]
     table.voting(votes)
     table.get_scores_list()
+
+    final_position = ', '.join(
+        [f'{name}: {card}' for name, card in zip(table.nicknames, table.cards[:-table.num_center])])
+    final_center = ', '.join(table.cards[-table.num_center:])
+    executed = 'мирный день' if table.executed == -1 else table.nicknames[table.executed]
+    await send_multiple(table.players,
+                        f"Итоговый расклад:\n{final_position}\nЦентр: {final_center}\nБольше всего голосов набрал {executed}\n"
+                        f"Победила {translate_en_ru(table.winner_team)} команда.")
+
+    for player, nickname, score in zip(table.players, table.nicknames, table.scores):
+        if score != 0:
+            await send_to_player(player, f"Вы получаете {score} балл за победу.")
+        else:
+            await send_to_player(player, f"В этом раунде вы проиграли и не получаете очков.")
+        table.accumulated_scores[nickname] = table.accumulated_scores.get(nickname, 0) + score
+    scores_text = "The final scores are:\n" + table.generate_scores_with_medals()
+    await send_multiple(table.players, scores_text)
+
+    # saving the state
     game_service.game_repo.save_game_state(table.game_id, table, table.status)
     game_service.game_repo.move_table(table.game_id, 'started', 'completed')
     for player_id in table.players:
         game_service.user_repo.update_game_id_and_status_for_user(player_id, None, None)
 
-    final_position = ', '.join([f'{name}: {card}' for name, card in zip(table.nicknames, table.cards[:-table.num_center])])
-    executed = 'мирный день' if table.executed == -1 else table.nicknames[table.executed]
-    await send_multiple(table.players,
-                        f"Итоговый расклад:\n{final_position}\nБольше всего голосов набрал {executed}\n"
-                        f"Победила {translate_en_ru(table.winner_team)} команда.")
-    return table.scores
 
-
-async def play(current_table: Table):
+async def play(current_table: Table) -> None:
     #  preparation
-    # cards_set = ['Баламут', 'Жаворонок', 'Камикадзе', 'Тигар', 'Ревизор', 'Шериф', 'Пьяница', 'Шаман', 'Интриган',
-    #              'Стражник', 'Тигар', 'Вервульф', 'Вожак', 'Вервульф', 'Провидец', 'Приспешник', 'Воришка',
-    #              'Двойник', 'Вервульф', 'Тигар']
-    # cards_set = ['Двойник', 'Жаворонок', 'Тигар', 'Вервульф', 'Приспешник', 'Камикадзе', 'Тигар', 'Тигар']
-    # ДЛЯ ТЕСТОВ можно не перемешивать карты в Table
-
     current_table.num_players = len(current_table.players)
-
     if current_table.testing:
-        current_table.cards_set = ['Провидец', 'Воришка', 'Шериф', 'Пьяница', 'Вервульф']  # , 'Вервульф', 'Вервульф', 'Шериф']
+        current_table.cards_set = ['Двойник', 'Вервульф', 'Жаворонок', 'Камикадзе',
+                                   'Вервульф']  # , 'Вервульф', 'Вервульф', 'Шериф']
     else:
         current_table.cards_set = complete_cards_set(current_table.cards_set, current_table.num_players)
-
     current_table.roles_night_order = get_night_order(current_table.cards_set)
-    scores = [0] * current_table.num_players
-    # await send_multiple(current_table.players,
-    #                     f"Вы начинаете игру с {current_table.num_players} участниками: {current_table.nicknames}")  # and will play {num_rounds} round(-s).")
 
-    # cycle for rounds
-    for round_id in range(1):  # NO functionality for multy-rounds now
-        current_table.status = 'started'
+    # playing
+    current_table.status = 'started'
+    await prepare_round(current_table)
+    await play_round(current_table)
 
-        round_scores = await play_round(current_table)  # running a single play_round
-
-        # await send_to_player('All', f"The scores of play_round {round_id} are {round_scores}.")
-        for player in range(current_table.num_players):
-            scores[player] += round_scores[player]
-    for player in range(current_table.num_players):
-        if scores[player] != 0:
-            await send_to_player(current_table.players[player], f"Вы получаете {scores[player]} балл за победу.")
-        else:
-            await send_to_player(current_table.players[player], f"В этом раунде вы проиграли и не получаете очков.")
-    # await send_multiple(current_table.players, f"The final scores are: {scores}")
-    # await send_multiple(current_table.players, f"The winner got {max(scores)} points")
+    await send_to_player(current_table.admin_id, f'If you want to continue, send `/repeat {current_table.game_id}`')
 
 
 def generate_voting_keyboard(table) -> InlineKeyboardMarkup:
@@ -461,18 +502,3 @@ def generate_voting_keyboard(table) -> InlineKeyboardMarkup:
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[player_buttons, peaceful_day_button])
     return keyboard
-
-
-'''
-# Usage example
-table = Table(
-    game_id="123",
-    admin_id="admin",
-    status="active",
-    roles_night_order=["role1", "role2"],
-    awards={"win": 10},
-    players=["player1", "player2", "player3"],
-    nicknames=["User1", "User2", "User3"]
-)
-keyboard = generate_table_keyboard(table)
-'''

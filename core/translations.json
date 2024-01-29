@@ -1,0 +1,68 @@
+{
+    "en": {
+        "Стражник": {
+            "name": "Guard",
+            "description": "When the Guard is in the game, place any token or coin in the center of the table when dealing cards. The Guard wakes up first and can put the Guard token on top of any card on the table, except his own. Players can no longer interact with the covered card at night. This rule is stronger than all other rules."
+        },
+        "Двойник": {
+            "name": "Doppelganger",
+            "description": "The Doppelganger must look at another player's card. He becomes a doppelganger of the role he spied on, and his own card takes on the color of that role until the end of the game. If he looked at a night action card with movement and/or card viewing (Troublemaker, Shaman, Seer, Robber), he performs the prescribed action immediately; if a team card (Werewolf, Minion, Tigar) - he wakes up again with his new team, as if he was dealt such a card. If he looked at a card implying pre-morning actions (Inspector, Intriguer, Drunk, Morninger), he wakes up again in a separate time slot before morning."
+        },
+        "Вожак": {
+            "name": "Alpha",
+            "description": "The Alpha plays for the red team. On his turn, he wakes up and can look at any other player's card. After that, he joins the rest of the Werewolves: he wakes up on their turn (with the same opportunity to look at a card in the center) and raises his thumb up on the Minion's turn."
+        },
+        "Вервульф": {
+            "name": "Werewolf",
+            "description": "The Werewolves play for the red team. At night they wake up and get acquainted. If only one player woke up at this moment, he can choose to look at one card in the center of the table. Also, the Werewolves raise their thumb up on the Minion's turn."
+        },
+        "Приспешник": {
+            "name": "Minion",
+            "description": "The Minion plays for the red team, but the color of his card is green, so he can sacrifice himself in the vote for the victory of the red team. On the Minion's turn, the Werewolves (and the Alpha) with their eyes closed raise their thumbs up. In the absence of red players at the table, the Minion must prevent a peaceful day."
+        },
+        "Тигар": {
+            "name": "Tigar",
+            "description": "The Tigars play for the green team. They can open their eyes and see each other, they do not perform other actions."
+        },
+        "Шериф": {
+            "name": "Sheriff",
+            "description": "The Sheriff plays for the green team. He can look at any other player's card."
+        },
+        "Провидец": {
+            "name": "Seer",
+            "description": "The Seer plays for the green team. He can choose to look at two of the three cards lying in the center of the table."
+        },
+        "Ревизор": {
+            "name": "Inspector",
+            "description": "The Inspector plays for the green team. He can look at any other player's card. If he looked at the Werewolf or Minion card, he must immediately announce this and show everyone his card. The game ends, and the green team wins."
+        },
+        "Интриган": {
+            "name": "Intriguer",
+            "description": "The Intriguer plays for the green team. He wakes up as one of the first and can swap the cards of two other players; and at the end of the night - wakes up again and changes the cards of the same players again (mandatory if the first card replacement was made). The Intriguer does not look at the moved cards."
+        },
+        "Воришка": {
+            "name": "Robber",
+            "description": "The Robber plays for the green team. He can swap his card with another player and look at his new role. The Robber cannot look at his new role before the swap."
+        },
+        "Баламут": {
+            "name": "Troublemaker",
+            "description": "The Troublemaker plays for the green team. He can swap the cards of two other players. He does not look at the moved cards."
+        },
+        "Шаман": {
+            "name": "Shaman",
+            "description": "The Shaman plays for the green team. He can swap another player's card with a card in the center. He does not look at the moved cards."
+        },
+        "Пьяница": {
+            "name": "Drunk",
+            "description": "The Drunk plays for the green team. He must swap his card with a card in the center. He can look at his card before this. He cannot look at the card from the center."
+        },
+        "Жаворонок": {
+            "name": "Morninger",
+            "description": "The Morninger plays for the green team. He can look at his card after all the movements."
+        },
+        "Камикадзе": {
+            "name": "Suicidal",
+            "description": "The Suicidal plays for the blue team. He does not perform any night actions."
+        }
+    }
+}

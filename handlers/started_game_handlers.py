@@ -86,12 +86,14 @@ async def abort_game(message: Message, user_id: str, current_table: Table):
     else:
         await message.answer("Not admin of the game")
 
-@router.message(Command('vote'))
-async def vote_command_handler(message: Message, user_id: str, current_table: Table):
+@router.message(Command('skip'))
+async def skip_command_handler(message: Message, user_id: str, current_table: Table):
     # Check if the user is an admin
     if user_id == current_table.admin_id:
-        await current_table.skip_discussion()
-        # Additional logic to move to voting
+        answer = await current_table.skip_discussion()
+        await message.answer(answer)
+    else:
+        await message.answer('Only admin can skip discussion')
 
 
 button_inputs = {}  # Dictionary to store the state of user inputs
@@ -104,25 +106,58 @@ async def process_buttons_press(callback: CallbackQuery):
     if user is None or user.current_game_id is None or user.current_game_status != 'started':
         print('Mistake')
     current_table = game_service.game_repo.load_table(user.current_game_id, user.current_game_status)
-    if user_id not in button_inputs or button_inputs[user_id] is None:
-        action_arg = [int(callback.data)]
-        if second_argument_needed(current_table):
-            await callback.message.edit_text(text=callback.message.text + f'\nВы выбрали карту на позиции {callback.data}.\nТеперь выберите вторую карту:',
-                                             reply_markup=callback.message.reply_markup)
-            button_inputs[user_id] = action_arg
+    if current_table.next_role is None:
+        raise ValueError("It's nobody's turn now")
+    elif current_table.next_role == 'Voting':
+        if -1 <= int(callback.data) < current_table.num_players:
+            if int(callback.data) == -1:
+                vote_result = f'Вы проголосовали за Мирный день'
+            else:
+                vote_result = f'Вы проголосовали за игрока {current_table.nicknames[int(callback.data)]}'
+            communication.set_player_input(user_id, list(map(int, callback.data.split())))
+            await callback.message.edit_text(text=vote_result, reply_markup=None)
         else:
-            communication.set_player_input(user_id, action_arg)
-            await callback.message.edit_text(text=f'Вы выбрали карту на позиции {callback.data}.',
-                                             reply_markup=None)
-    elif len(button_inputs[user_id]) == 1:
-        button_inputs[user_id].append(int(callback.data))
-        action_args = button_inputs[user_id]
-        communication.set_player_input(user_id, action_args)
-        await callback.message.edit_text(text=f'Вы выбрали карты на позициях {action_args[0]} and {action_args[1]}.',
-                                         reply_markup=None)
-        del button_inputs[user_id]
+            raise ValueError(f"Incorrect vote.\nPlease enter a number from -1 to {current_table.num_players - 1}")
+    elif current_table.performer_position != current_table.players.index(user_id):  # whether this is a turn of a player
+        raise ValueError("It's not your turn now")
+
     else:
-        raise ValueError
+        if user_id not in button_inputs or button_inputs[user_id] is None:
+            action_arg = [int(callback.data)]
+
+            if action_arg[0] in [-1, -2, -3]:
+                selected_card_text = f'Вы выбрали {action_arg[0]+4}ю карту в центре'
+            elif action_arg[0] in range(current_table.num_players):
+                selected_card_text = f'Вы выбрали карту игрока {current_table.nicknames[action_arg[0]]}'
+            else:
+                raise ValueError(f'Номер карты {action_arg[0]} не соответствует игре {current_table.game_id}')
+
+            if second_argument_needed(current_table):
+                await callback.message.edit_text(text=callback.message.text + f'\n{selected_card_text}.\nТеперь выберите вторую карту:',
+                                                 reply_markup=callback.message.reply_markup)
+                button_inputs[user_id] = action_arg
+            else:
+                communication.set_player_input(user_id, action_arg)
+                await callback.message.edit_text(text=selected_card_text, reply_markup=None)
+        elif len(button_inputs[user_id]) == 1:
+            button_inputs[user_id].append(int(callback.data))
+            action_args = button_inputs[user_id]
+            if action_args[0] in [-1, -2, -3] and action_args[1] in [-1, -2, -3]:
+                selected_card_text = f'Вы выбрали {action_args[0]+4}ю и {action_args[1]+4}ю карту в центре'
+            elif action_args[0] in range(current_table.num_players) and action_args[1] in range(current_table.num_players):
+                selected_card_text = f'Вы выбрали карты игроков {current_table.nicknames[action_args[0]]} и {current_table.nicknames[action_args[1]]}'
+            elif action_args[0] in range(current_table.num_players) and action_args[1] in [-1, -2, -3]:
+                selected_card_text = f'Вы выбрали карту игрока {action_args[0]} и {action_args[1]+4}ю карту в центре'
+            elif action_args[0] in [-1, -2, -3] and action_args[1] in range(current_table.num_players):
+                selected_card_text = f'Вы выбрали карту игрока {action_args[1]} и {action_args[0]+4}ю карту в центре'
+            else:
+                raise ValueError(f'Номера карт {action_args} не соответствует игре {current_table.game_id}')
+
+            communication.set_player_input(user_id, action_args)
+            await callback.message.edit_text(text=selected_card_text, reply_markup=None)
+            del button_inputs[user_id]
+        else:
+            raise ValueError
 
 
 @router.message()

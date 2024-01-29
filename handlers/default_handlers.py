@@ -55,13 +55,39 @@ async def join_game_command(message: Message):
     else:
         answer = game_service.join_game(str(message.from_user.id), game_id)
         admin = game_service.get_admin(game_id)
-        from data.communication import send_to_player
-        await send_to_player(admin, answer)
-
+        if admin:
+            from data.communication import send_to_player
+            await send_to_player(admin, answer)
     await message.answer(answer)
-    if answer == "success":
-        pass  # to inform admin that user joined? maybe do it when game state is updated?
 
+
+@router.message(Command(commands='repeat'))
+async def join_game_command(message: Message):
+    game_id = message.text[len('/repeat '):]  # The format is /repeat <game_id>
+    if not game_id:
+        await message.answer('Error: you have not entered game ID')
+    else:
+        user_id = str(message.from_user.id)
+        previous_table = game_service.game_repo.load_table(game_id, 'completed')
+        if previous_table.admin_id != user_id:
+            await message.answer('Error: only admin can repeat a game')
+        else:
+            # re-create a game
+            await message.answer(game_service.create_game(user_id), parse_mode='Markdown')
+            new_table_id = game_service.user_repo.get_game_id_for_user(user_id, 'created')
+            # get all players
+            for player_id in previous_table.players[1:]:
+                answer = game_service.join_game(player_id, new_table_id)
+                from data.communication import send_to_player
+                await send_to_player(player_id, answer)
+                await message.answer(answer)
+            # get cards and scores
+            cards = previous_table.cards_set
+            await message.answer(game_service.set_cards(user_id, cards))
+            new_table = game_service.game_repo.load_table(new_table_id, 'created')
+            new_table.accumulated_scores = previous_table.accumulated_scores.copy()
+            game_service.game_repo.save_game_state(new_table_id, new_table, 'created')
+            await message.answer(f"Current scores are:\n" + new_table.generate_scores_with_medals())
 
 @router.message(lambda message: True)
 async def unknown_command(message: Message):

@@ -48,8 +48,8 @@ class UserRepository:
         user = self.get_user(user_id)
         return user.username if user else None
 
-    def get_game_id_for_user(self, user_id, status='started') -> str or None:
-        # Убеждаемся, что статус имеет одно из трёх допустимых значений
+    def get_game_id_for_user(self, user_id: str, status: str='started') -> str or None:
+        # Убеждаемся, что статус имеет одно из допустимых значений
         if status not in ['created', 'started', 'completed', 'cancelled', 'aborted']:
             raise ValueError("Invalid status value")
         else:
@@ -71,31 +71,3 @@ class UserRepository:
 
     def save_user(self, user):
         save_user_data(user.user_id, user)
-
-    """    
-    def __init__(self, db):
-        self.db = db
-
-    def add_user(self, user_id, username):
-        if user_id not in self.db.data:
-            self.db.data[user_id] = User(user_id, username)
-            self.db.save_data()
-
-    def get_user(self, user_id):
-        return self.db.data.get(user_id)
-
-    def update_name(self, user_id, new_name):
-        user = self.get_user(user_id)
-        if user:
-            user.username = new_name
-            self.db.save_data()
-
-    def get_nickname(self, user_id):
-        user = self.get_user(user_id)
-        return user.username if user else None
-
-    def save_user(self, user):
-        self.db.data[user.user_id] = user
-        self.db.save_data()
-    """
-

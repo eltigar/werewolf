@@ -13,7 +13,7 @@ class GameRepository:
         with open(filename, 'wb') as f:
             pickle.dump(game_tables, f)
 
-    def load_table(self, game_id, status) -> Table:
+    def load_table(self, game_id: str, status: str) -> Table:
         game_tables = self.load_all_tables(status)
         return game_tables.get(game_id)
 

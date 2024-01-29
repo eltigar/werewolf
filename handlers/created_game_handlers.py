@@ -52,7 +52,7 @@ async def cancel_game_command(message: Message):
 @router.message(Command(commands='set_cards'))
 async def set_cards_command(message: Message):
     answer = game_service.set_cards(str(message.from_user.id),
-                                    message.text[11:].split())  # The format is /set_cards card1 card2 card3 ...
+                                    message.text[11:].split(', '))  # The format is /set_cards card1 card2 card3 ...
     await message.answer(answer)
 
 

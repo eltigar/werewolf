@@ -38,16 +38,23 @@ def display(name):
     # for attribute, value in attributes.items():
     #    print(attribute, "=", value)
 
-show = 2
+show = 0
 if show == 0: name = 'users.pkl'
 elif show == 1: name = 'created_games.pkl'
 elif show == 2: name = 'started_games.pkl'
 elif show == 3: name = 'completed_games.pkl'
 elif show == 4: name = 'cancelled_games.pkl'
 elif show == 5: name = 'aborted_games.pkl'
+else: name = None
 
 if __name__ == '__main__':
     display_pickle_content(name)
+    need_to_correct_data = False
+    if need_to_correct_data:
+        from data.user_repository import UserRepository
+        user_repo = UserRepository()
+        user_repo.update_game_id_and_status_for_user('6485662764', None, None)
+        display_pickle_content(name)
 
 """
 with open('OLD_games_data.pkl', 'rb') as file:

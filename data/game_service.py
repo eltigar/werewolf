@@ -34,7 +34,7 @@ class GameService:
             self.user_repo.update_game_id_and_status_for_user(admin_id, game_id, 'created')
             return f"Game {game_id} is created. Tap to copy: `/join {game_id}`"
 
-    def join_game(self, user_id, game_id) -> str:
+    def join_game(self, user_id: str, game_id: str) -> str:
         if self.user_repo.get_user(user_id) is None:
             return "User not found."
         user = self.user_repo.get_user(user_id)
@@ -105,8 +105,9 @@ class GameService:
         current_table = self.game_repo.load_table(game_id, 'created')
         if current_table.admin_id != admin_id:
             return "User not Admin of the game."
-        current_table.admin_id = None
+        # current_table.admin_id = None  # line commented to save the admin
         for player_id in current_table.players:
+            # add message to the user
             self.user_repo.update_game_id_and_status_for_user(player_id, None, None)  # update users db
         self.game_repo.move_table(game_id, 'created', 'cancelled')
         return f"Game {game_id} was cancelled by admin {admin_id}."
@@ -117,7 +118,7 @@ class GameService:
 
     def get_admin(self, game_id) -> str:
         current_table = self.game_repo.load_table(game_id, 'created')
-        return str(current_table.admin_id) if current_table else "Game not found."
+        return str(current_table.admin_id) if current_table else None
 
     def set_cards(self, admin_id, cards: list):
         user = self.user_repo.get_user(admin_id)
@@ -130,11 +131,14 @@ class GameService:
         current_table = self.game_repo.load_table(game_id, 'created')
         if current_table.admin_id != admin_id:
             return "User not Admin of the game."
+
+        from core.global_setup import ROLES_INCLUSION_ORDER
+        cards = [card for card in cards if card in ROLES_INCLUSION_ORDER]
         if not cards:
             return f"Error: no cards were given"
         current_table.cards_set = cards
         self.game_repo.save_game_state(game_id, current_table, 'created')
-        return f"Cards {cards} set for game {game_id}."
+        return f"Cards {', '.join(cards)} set for game {game_id}."
 
 
     def transfer_admin(self, admin_id, new_admin_id):
